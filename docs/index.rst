@@ -30,7 +30,6 @@ explaining each stage as it goes.
 
 How-to guides
 =============
-
 Task-focused recipes for people who already know the basics.
 
 .. toctree::
@@ -59,3 +58,11 @@ The full API.
    :maxdepth: 1
 
    reference/index
+   whatsnew/index
+
+Indices and tables
+==================
+
+* :ref:`genindex`
+* :ref:`modindex`
+* :ref:`search`

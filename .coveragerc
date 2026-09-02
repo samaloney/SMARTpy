@@ -4,6 +4,8 @@ omit =
   smart/*setup_package*
   smart/extern/*
   smart/version*
+  smart/_dev/*
+  */smart/_dev/*
   */smart/conftest.py
   */smart/*setup_package*
   */smart/extern/*

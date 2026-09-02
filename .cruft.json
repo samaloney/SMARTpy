@@ -1,6 +1,6 @@
 {
   "template": "https://github.com/sunpy/package-template",
-  "commit": "587aad1a92d72e28b93be4bc26b4992b4f7521ae",
+  "commit": "de26b5a88dcad688046a5a5edbe00b5af1793e13",
   "checkout": null,
   "context": {
     "cookiecutter": {
@@ -10,19 +10,30 @@
       "author_name": "SolarMonitor Team",
       "author_email": "",
       "project_url": "",
+      "github_repo": "",
+      "sourcecode_url": "",
+      "download_url": "https://pypi.org/project/smart",
+      "documentation_url": "",
+      "changelog_url": "",
+      "issue_tracker_url": "",
       "license": "BSD 3-Clause",
-      "minimum_python_version": "3.9",
+      "minimum_python_version": "3.12",
       "use_compiled_extensions": "n",
       "enable_dynamic_dev_versions": "y",
       "include_example_code": "n",
       "include_cruft_update_github_workflow": "y",
-      "_sphinx_theme": "alabaster",
+      "use_pat_in_cruft_update_workflow": "y",
+      "use_extended_ruff_linting": "n",
+      "matrix_room_id": "",
+      "extra_ci_jobs": "",
+      "use_sunpy_pr_template": "n",
+      "_sphinx_theme": "sunpy",
       "_parent_project": "",
       "_install_requires": "",
       "_copy_without_render": [
         "docs/_templates",
         "docs/_static",
-        ".github/workflows/sub_package_update.yml"
+        ".github/workflows/zizmor.yml"
       ],
       "_template": "https://github.com/sunpy/package-template"
     }

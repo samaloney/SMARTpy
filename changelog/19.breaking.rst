@@ -1,0 +1,5 @@
+Bumped the minimum supported versions of core dependencies:
+
+- Python >= 3.12
+- ``sunpy[map]`` >= 6.1.0
+- ``scikit-image`` >= 0.25

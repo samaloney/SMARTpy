@@ -1,19 +1,20 @@
 [build-system]
 requires = [
   "setuptools>=62.1",
-  "setuptools_scm[toml]>=6.2",
-  "wheel",]
+  "setuptools_scm[toml]>=8.0.0",
+  "wheel",
+]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "smart"
 description = "SolarMonitor Active Regtion Tracking (SMART)"
-requires-python = ">=3.9"
+requires-python = ">=3.12"
 readme = { file = "README.rst", content-type = "text/x-rst" }
-license = { file = "licenses/LICENSE.rst", content-type = "text/plain" }
+license-files = ["licenses/LICENSE.rst"]
 dependencies = [
-  "sunpy[map]>=5.1",
-  "scikit-image>=0.24"
+  "sunpy[map]>=6.1.0",
+  "scikit-image>=0.25"
 ]
 dynamic = ["version"]
 
@@ -28,20 +29,28 @@ docs = [
   "sphinx",
   "sphinx-gallery",
   "sphinx-automodapi",
+  "sphinx-changelog",
+  "sunpy-sphinx-theme",
+  "packaging",
   "pydata-sphinx-theme",
 ]
 
 dev = ["smart[tests,docs]"]
+
+[project.urls]
+Homepage = "https://smart.readthedocs.org"
+Download = "https://pypi.org/project/smart"
 
 [tool.setuptools]
 zip-safe = false
 include-package-data = true
 
 [tool.setuptools.packages.find]
+include = ["smart*"]
 exclude = ["smart._dev*"]
 
 [tool.setuptools_scm]
-write_to = "smart/_version.py"
+version_file = "smart/_version.py"
 
 [tool.gilesbot]
   [tool.gilesbot.pull_requests]
@@ -64,25 +73,26 @@ write_to = "smart/_version.py"
   filename = "CHANGELOG.rst"
   directory = "changelog/"
   issue_format = "`#{issue} <https://github.com/TCDSolar/SMARTpy/pull/{issue}>`__"
+  title_format = "{version} ({project_date})"
 
   [[tool.towncrier.type]]
   directory = "breaking"
-  name = "Backwards Incompatible Changes"
+  name = "Breaking Changes"
   showcontent = true
 
   [[tool.towncrier.type]]
-  directory = "api"
-  name = "API Changes"
+  directory = "deprecation"
+  name = "Deprecations"
   showcontent = true
 
   [[tool.towncrier.type]]
   directory = "removal"
-  name = "Deprecations and Removals"
+  name = "Removals"
   showcontent = true
 
   [[tool.towncrier.type]]
   directory = "feature"
-  name = "Features"
+  name = "New Features"
   showcontent = true
 
   [[tool.towncrier.type]]
@@ -92,13 +102,13 @@ write_to = "smart/_version.py"
 
   [[tool.towncrier.type]]
   directory = "doc"
-  name = "Improved Documentation"
+  name = "Documentation"
   showcontent = true
 
   [[tool.towncrier.type]]
   directory = "trivial"
-  name = "Trivial/Internal Changes"
+  name = "Internal Changes"
   showcontent = true
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.12"

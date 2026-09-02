@@ -26,9 +26,7 @@ def prepare_magnetogram(mag: Map):
     """
 
 
-def index_and_grow_mask(
-    current_map: Map, rotated_map: Map, dilation_radius: u.Quantity[u.arcsec] = 5 * u.arcsec
-):
+def index_and_grow_mask(current_map: Map, rotated_map: Map, dilation_radius: u.Quantity[u.arcsec] = 5 * u.arcsec):
     """
     Performing Indexing and Growing of the Mask (hence the name IGM).
 
