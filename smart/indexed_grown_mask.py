@@ -58,8 +58,8 @@ def index_and_grow_mask(
     filtered_labels = smooth_los_threshold(current_map)[1]
     filtered_labels_dt = smooth_los_threshold(rotated_map)[1]
 
-    dilated_mask = ski.morphology.binary_dilation(filtered_labels, disk(dilation_radius))
-    dilated_mask_dt = ski.morphology.binary_dilation(filtered_labels_dt, disk(dilation_radius))
+    dilated_mask = ski.morphology.dilation(filtered_labels, disk(dilation_radius))
+    dilated_mask_dt = ski.morphology.dilation(filtered_labels_dt, disk(dilation_radius))
 
     transient_features = dilated_mask_dt & ~dilated_mask
     final_mask = dilated_mask & ~transient_features

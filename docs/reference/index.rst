@@ -1,10 +1,11 @@
+.. _reference:
+
 =========
 Reference
 =========
 
-Software and API.
+The public API of ``smart``, generated from the source.
 
-.. automodapi:: smart
 .. automodapi:: smart.processing
 .. automodapi:: smart.differential_rotation
 .. automodapi:: smart.indexed_grown_mask

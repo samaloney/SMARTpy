@@ -18,7 +18,7 @@ from smart.processing import (
 
 @pytest.fixture
 def hmi_nrt():
-    return "https://sky.dias.ie/index.php/s/ZnkB2ZF6NJBnCfp/download/hmi.M_720s.20240606_230000_TAI.fits"
+    return "https://jsoc1.stanford.edu/data/hmi/fits/2024/06/06/hmi.M_720s.20240606_230000_TAI.fits"
 
 
 @pytest.fixture

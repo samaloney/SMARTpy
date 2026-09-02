@@ -84,7 +84,7 @@ def smooth_los_threshold(
     posmask = cosmap_data > thresh
     mask = negmask | posmask
 
-    dilated_mask = ski.morphology.binary_dilation(mask, disk(dilation_radius))
+    dilated_mask = ski.morphology.dilation(mask, disk(dilation_radius))
     smoothed_data = ski.filters.gaussian(np.nan_to_num(cosmap_data) * dilated_mask, sigma)
     smooth_map = Map(smoothed_data, im_map.meta)
 

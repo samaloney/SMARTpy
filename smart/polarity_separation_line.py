@@ -36,8 +36,8 @@ def separate_polarities(im_map, feature_mask, dilation_radius: u.Quantity[u.arcs
     arcsec_to_pixel = 1 / ((im_map.scale[0] + im_map.scale[1]) / 2)
     dilation_radius = (np.round(dilation_radius * arcsec_to_pixel)).to_value(u.pix)
 
-    dilated_posmask = ski.morphology.binary_dilation(posmask, disk(dilation_radius))
-    dilated_negmask = ski.morphology.binary_dilation(negmask, disk(dilation_radius))
+    dilated_posmask = ski.morphology.dilation(posmask, disk(dilation_radius))
+    dilated_negmask = ski.morphology.dilation(negmask, disk(dilation_radius))
     return dilated_negmask, dilated_posmask
 
 

@@ -1,0 +1,1 @@
+Swap from deprecated `ski.morphology.binary_dilation` to `ski.morphology.dilation`.
