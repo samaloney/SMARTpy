@@ -195,7 +195,7 @@ def cosine_correct_data(im_map: Map, cosmap=None, limit: float = 0.99):
     return corrected_data
 
 
-def smart_prep(im_map):
+def smart_prep(im_map, **kwargs):
     """
     Prepare map for use in segmentation and characterization processes.
 
@@ -203,6 +203,9 @@ def smart_prep(im_map):
     ----------
     im_map : `~sunpy.map.Map`
         Unprocessed SunPy magnetogram map.
+    **kwargs
+        Passed through to `smooth_los_threshold` (``thresh``, ``sigma``,
+        ``dilation_radius``, ``min_area``).
 
     Returns
     -------
@@ -213,6 +216,6 @@ def smart_prep(im_map):
 
     """
     disk_map = remove_off_disk(im_map)
-    smooth_map, *_ = smooth_los_threshold(disk_map)
+    smooth_map, *_ = smooth_los_threshold(disk_map, **kwargs)
     cos_correction = calculate_cosine_correction(smooth_map)
     return disk_map, cos_correction

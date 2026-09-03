@@ -29,6 +29,8 @@ def prepare_magnetogram(mag: Map):
 def index_and_grow_mask(
     current_map: Map,
     rotated_map: Map,
+    thresh: u.Quantity[u.Gauss] = 100 * u.Gauss,
+    sigma: u.Quantity[u.arcsec] = 10 * u.arcsec,
     dilation_radius: u.Quantity[u.arcsec] = 5 * u.arcsec,
     min_area: u.Quantity[u.arcsec**2] = 4500 * u.arcsec**2,
 ):
@@ -48,6 +50,12 @@ def index_and_grow_mask(
         Processed magnetogram map from time 't'.
     rotated_map : `~sunpy.map.Map`
         Processed magnetogtam map from time 't - delta_t' differentially rotated to time t.
+    thresh : `~astropy.units.Quantity`, optional
+        Noise threshold for the binary detection masks, passed to
+        `~smart.processing.smooth_los_threshold` (default 100 G).
+    sigma : `~astropy.units.Quantity`, optional
+        Gaussian smoothing width for the binary detection masks, passed to
+        `~smart.processing.smooth_los_threshold` (default 10 arcsec).
     dilation_radius : `~astropy.units.Quantity`, optional
         Radius of the disk for binary dilation (default is 5 arcsec).
     min_area : `~astropy.units.Quantity`, optional
@@ -66,8 +74,8 @@ def index_and_grow_mask(
     min_area_px = np.round(min_area * arcsec_to_pixel**2).to_value(u.pix**2)
 
     # Un-grown binary detection masks: M_t and the differentially rotated M_{t-dt}.
-    current_binary = smooth_los_threshold(current_map, grow=False)[1]
-    rotated_binary = smooth_los_threshold(rotated_map, grow=False)[1]
+    current_binary = smooth_los_threshold(current_map, thresh=thresh, sigma=sigma, grow=False)[1]
+    rotated_binary = smooth_los_threshold(rotated_map, thresh=thresh, sigma=sigma, grow=False)[1]
 
     # A feature in the un-grown current mask survives only if it overlaps the grown,
     # rotated previous-frame mask (so it is not a transient) and is not tiny.

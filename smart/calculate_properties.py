@@ -164,9 +164,9 @@ def get_properties(im_map, dB_dt, dt, sorted_labels):
     return properties
 
 
-def smart_indentify_and_characterize(im_map, previous_map):
+def smart_indentify_and_characterize(im_map, previous_map, **kwargs):
     """
-    Identifies and characterizes solar features from magnetogram maps.
+    Identifies and characterises solar features from magnetogram maps.
 
     This function prepares two magnetograms, one from our desired time, 't', and one taken before this, and then calculates properties of the desired magnetogram,
     such as total area and flux emergence rate. To do this, the magnetograms are processed, features are detected, and a binary mask is created for the map. Then,
@@ -190,7 +190,7 @@ def smart_indentify_and_characterize(im_map, previous_map):
 
     rotated_map = diff_rotation(threshold_map, threshold_map_prev)
 
-    sorted_labels = index_and_grow_mask(threshold_map, rotated_map)
+    sorted_labels = index_and_grow_mask(threshold_map, rotated_map, **kwargs)
 
     dBdt, dt = dB_dt(threshold_map, threshold_map_prev)
 
