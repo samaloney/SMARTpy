@@ -96,19 +96,28 @@ def smooth_los_threshold(
     return smooth_map, filtered_labels, mask_sizes
 
 
-def calculate_cosine_correction(im_map: Map):
-    """
-    Find the cosine correction values for on-disk pixels.
+def calculate_cosine_correction(im_map: Map, limit: float = 0.99):
+    r"""
+    Find the cosine (:math:`1/\mu`) correction values for on-disk pixels.
+
+    For each on-disk pixel the heliocentric angle :math:`\theta` is found from
+    its angular distance from disk centre, and the line-of-sight to radial
+    correction factor is :math:`1/\cos\theta`.  Off-disk pixels are set to 1.
 
     Parameters
     ----------
     im_map : `~sunpy.map.Map`
         Processed SunPy magnetogram map.
+    limit : `float`, optional
+        Cap on :math:`\sin\theta`, so the correction cannot exceed
+        ``1 / cos(arcsin(limit))``.  The default of 0.99 caps it at ~7.1
+        (:math:`\theta \approx 82^\circ`), beyond which the deprojection is
+        unreliable.
 
     Returns
     -------
     cos_correction : `~numpy.ndarray`
-        Array of cosine correction factors for each pixel. Values greater than a threshold (edge) are set to 1.
+        Array of cosine correction factors for each pixel.
 
     """
 
@@ -118,15 +127,15 @@ def calculate_cosine_correction(im_map: Map):
     cos_correction = np.ones_like(im_map.data)
 
     radial_angle = np.arccos(np.cos(coordinates.Tx[on_disk]) * np.cos(coordinates.Ty[on_disk]))
-    cos_cor_ratio = (radial_angle / im_map.rsun_obs).value
-    cos_cor_ratio = np.clip(cos_cor_ratio, -1, 1)
+    sin_theta = (radial_angle / im_map.rsun_obs).decompose()
+    sin_theta = np.clip(sin_theta, -limit, limit)
 
-    cos_correction[on_disk] = 1 / (np.cos(np.arcsin(cos_cor_ratio)))
+    cos_correction[on_disk] = 1 / np.cos(np.arcsin(sin_theta))
 
     return cos_correction
 
 
-def cosine_correct_data(im_map: Map, cosmap=None):
+def cosine_correct_data(im_map: Map, cosmap=None, limit: float = 0.99):
     """
     Perform magnetic field cosine correction.
 
@@ -136,7 +145,10 @@ def cosine_correct_data(im_map: Map, cosmap=None):
         Processed SunPy magnetogram map.
     cosmap : `numpy.ndarray`, optional
         An array of the cosine correction factors for each pixel.
-        If not provided, computed using calculate_cosine_correction.
+        If not provided, computed using `calculate_cosine_correction`.
+    limit : `float`, optional
+        Passed to `calculate_cosine_correction`, and used to cap a
+        ``cosmap`` that is supplied directly, at ``1 / cos(arcsin(limit))``.
 
     Returns
     -------
@@ -145,13 +157,9 @@ def cosine_correct_data(im_map: Map, cosmap=None):
 
     """
     if cosmap is None:
-        cosmap = calculate_cosine_correction(im_map)
+        cosmap = calculate_cosine_correction(im_map, limit=limit)
 
-    scale = (im_map.scale[0] + im_map.scale[1]) / 2
-
-    angle_limit = (scale / im_map.rsun_obs).value
-    cos_limit = 1 / np.cos(angle_limit)
-    cosmap = np.clip(cosmap, None, cos_limit)
+    cosmap = np.clip(cosmap, None, 1 / np.cos(np.arcsin(limit)))
 
     corrected_data = im_map.data * cosmap * u.Gauss
     return corrected_data

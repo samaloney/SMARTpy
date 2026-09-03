@@ -59,6 +59,7 @@ from smart.processing import map_threshold, smooth_los_threshold
 MDI_SERIES = a.jsoc.Series("mdi.fd_M_96m_lev182")
 JSOC_NOTIFY = a.jsoc.Notify("maloneys@tcd.ie")
 
+
 def fetch_mdi(start, end, sample=None):
     """Search JSOC for MDI LOS magnetograms in ``[start, end]`` and load them."""
     search_attrs = [a.Time(start, end), MDI_SERIES, JSOC_NOTIFY]
@@ -154,12 +155,21 @@ clip = ImageNormalize(vmin=-1000, vmax=1000)
 
 panels = [
     (crop(copy_map(b_t), center, fov), "(A) calibrated $B_t$", dict(cmap="gray", norm=clip)),
-    (crop(sunpy.map.Map(smooth_map.data, b_t.meta), center, fov),
-     "(B) smoothed + noise-thresholded", dict(cmap="gray", norm=clip)),
-    (crop(sunpy.map.Map(area_mask.astype(float), b_t.meta), center, fov),
-     "(C) area-thresholded mask", dict(cmap="binary")),
-    (crop(sunpy.map.Map((igm > 0).astype(float), b_t.meta), center, fov),
-     "(D) indexed grown mask $IGM_{t,i}$", dict(cmap="binary")),
+    (
+        crop(sunpy.map.Map(smooth_map.data, b_t.meta), center, fov),
+        "(B) smoothed + noise-thresholded",
+        dict(cmap="gray", norm=clip),
+    ),
+    (
+        crop(sunpy.map.Map(area_mask.astype(float), b_t.meta), center, fov),
+        "(C) area-thresholded mask",
+        dict(cmap="binary"),
+    ),
+    (
+        crop(sunpy.map.Map((igm > 0).astype(float), b_t.meta), center, fov),
+        "(D) indexed grown mask $IGM_{t,i}$",
+        dict(cmap="binary"),
+    ),
 ]
 
 fig = plt.figure(figsize=(9, 9))
@@ -185,9 +195,7 @@ fig.tight_layout()
 mdi_97 = fetch_mdi("1997-09-17 11:00", "1997-09-17 13:00")[0]
 
 ar_center_97 = project(noaa_center(8086, "1997-09-17"), mdi_97)
-qs_center_97 = SkyCoord(
-    ar_center_97.Tx, ar_center_97.Ty - 350 * u.arcsec, frame=mdi_97.coordinate_frame
-)
+qs_center_97 = SkyCoord(ar_center_97.Tx, ar_center_97.Ty - 350 * u.arcsec, frame=mdi_97.coordinate_frame)
 fov_97 = 280 * u.arcsec
 
 ar_cut = crop(mdi_97, ar_center_97, fov_97)
