@@ -26,15 +26,21 @@ def prepare_magnetogram(mag: Map):
     """
 
 
-def index_and_grow_mask(current_map: Map, rotated_map: Map, dilation_radius: u.Quantity[u.arcsec] = 5 * u.arcsec):
+def index_and_grow_mask(
+    current_map: Map,
+    rotated_map: Map,
+    dilation_radius: u.Quantity[u.arcsec] = 5 * u.arcsec,
+    min_area: u.Quantity[u.arcsec**2] = 4500 * u.arcsec**2,
+):
     """
     Performing Indexing and Growing of the Mask (hence the name IGM).
 
-    Transient features are removed by comparing the detection mask at time 't' with the
-    detection mask differentially rotated to time 't': features in the current mask with no
-    counterpart in the rotated mask are dropped. The surviving detection is grown, and each
-    contiguous feature is assigned an ascending integer value (starting from one) in order
-    of decreasing size.
+    Following Higgins et al. (2011): the un-grown binary detection masks :math:`M_t` and
+    (differentially rotated) :math:`M_{t-\\Delta t}` are compared. A feature in :math:`M_t`
+    with no counterpart in the grown :math:`M_{t-\\Delta t}`, or smaller than ``min_area``,
+    is dropped as transient. The survivors are then grown by ``dilation_radius`` to form
+    :math:`M_{f,t}`, and each contiguous feature is given an ascending integer value in
+    order of decreasing size.
 
     Parameters
     ----------
@@ -44,6 +50,9 @@ def index_and_grow_mask(current_map: Map, rotated_map: Map, dilation_radius: u.Q
         Processed magnetogtam map from time 't - delta_t' differentially rotated to time t.
     dilation_radius : `~astropy.units.Quantity`, optional
         Radius of the disk for binary dilation (default is 5 arcsec).
+    min_area : `~astropy.units.Quantity`, optional
+        Minimum on-disk area for a feature to survive transient removal (default
+        4500 arcsec**2).
 
     Returns
     -------
@@ -53,22 +62,23 @@ def index_and_grow_mask(current_map: Map, rotated_map: Map, dilation_radius: u.Q
 
     """
     arcsec_to_pixel = ((current_map.scale[0] + current_map.scale[1]) / 2) ** (-1)
-    dilation_radius = (np.round(dilation_radius * arcsec_to_pixel)).to_value(u.pix)
+    footprint = disk((np.round(dilation_radius * arcsec_to_pixel)).to_value(u.pix))
+    min_area_px = np.round(min_area * arcsec_to_pixel**2).to_value(u.pix**2)
 
-    current_mask = smooth_los_threshold(current_map)[1]
-    rotated_mask = smooth_los_threshold(rotated_map)[1]
+    # Un-grown binary detection masks: M_t and the differentially rotated M_{t-dt}.
+    current_binary = smooth_los_threshold(current_map, grow=False)[1]
+    rotated_binary = smooth_los_threshold(rotated_map, grow=False)[1]
 
-    # Grow the differentially rotated previous-frame mask so a feature that has shifted
-    # slightly between the two times still overlaps its counterpart, then keep only the
-    # current-frame features that overlap it -- everything else is a transient.
-    grown_rotated_mask = ski.morphology.dilation(rotated_mask, disk(dilation_radius))
-    current_labels = ski.measure.label(current_mask)
-    persistent_labels = np.unique(current_labels[grown_rotated_mask & (current_labels > 0)])
-    persistent_mask = np.isin(current_labels, persistent_labels)
+    # A feature in the un-grown current mask survives only if it overlaps the grown,
+    # rotated previous-frame mask (so it is not a transient) and is not tiny.
+    grown_rotated = ski.morphology.dilation(rotated_binary, footprint)
+    current_labels = ski.measure.label(current_binary)
+    overlapping = np.unique(current_labels[grown_rotated & (current_labels > 0)])
+    big_enough = np.flatnonzero(np.bincount(current_labels.ravel()) >= min_area_px)
+    surviving = np.isin(current_labels, np.intersect1d(overlapping, big_enough))
 
-    # Grow the surviving detection to form the final feature mask.
-    final_mask = ski.morphology.dilation(persistent_mask, disk(dilation_radius))
-    final_labels = ski.measure.label(final_mask)
+    # Grow the survivors to form M_f,t, then index by decreasing size.
+    final_labels = ski.measure.label(ski.morphology.dilation(surviving, footprint))
 
     regions = ski.measure.regionprops(final_labels)
     region_sizes = [(region.label, region.area) for region in regions]
