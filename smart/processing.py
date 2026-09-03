@@ -43,7 +43,7 @@ def smooth_los_threshold(
     thresh: u.Quantity[u.Gauss] = 100 * u.Gauss,
     dilation_radius: u.Quantity[u.arcsec] = 5 * u.arcsec,
     sigma: u.Quantity[u.arcsec] = 10 * u.arcsec,
-    min_size: u.Quantity[u.arcsec] = 2250 * u.arcsec,
+    min_area: u.Quantity[u.arcsec**2] = 4500 * u.arcsec**2,
 ):
     """
     Apply smoothing, a noise threshold and an LOS correction, in that order, then detect.
@@ -63,24 +63,27 @@ def smooth_los_threshold(
         Radius of the disk for binary dilation (default 5 arcsec).
     sigma : `~astropy.units.Quantity`, optional
         Standard deviation of the Gaussian smoothing kernel (default 10 arcsec).
-    min_size : `~astropy.units.Quantity`, optional
-        Minimum size of regions to keep in the final mask (default 2250 arcsec).
+    min_area : `~astropy.units.Quantity`, optional
+        Minimum on-disk area for a region to be kept, as a solid angle that is
+        converted to pixels for the map at hand (default 4500 arcsec**2). Higgins
+        et al. (2011) use 50 pixels, but that is applied after a supergranule-scale
+        smoothed detection that is not yet ported, so a larger backstop is used here.
 
     Returns
     -------
     smooth_map : `~sunpy.map.Map`
         The smoothed, noise-thresholded, LOS-corrected magnetogram.
     filtered_labels : `numpy.ndarray`
-        Boolean detection mask (features larger than ``min_size``).
+        Boolean detection mask (regions larger than ``min_area``).
     mask_sizes : `~numpy.ndarray`
-        Boolean array indicating which labelled regions exceed ``min_size``.
+        Boolean array indicating which labelled regions exceed ``min_area``.
 
     """
 
     arcsec_to_pixel = ((im_map.scale[0] + im_map.scale[1]) / 2) ** (-1)
     dilation_radius = (np.round(dilation_radius * arcsec_to_pixel)).to_value(u.pix)
     sigma = (np.round(sigma * arcsec_to_pixel)).to_value(u.pix)
-    min_size = (np.round(min_size * arcsec_to_pixel)).to_value(u.pix)
+    min_area = np.round(min_area * arcsec_to_pixel**2).to_value(u.pix**2)
 
     # Smooth the raw magnetogram, zero sub-threshold (noise) pixels, then deproject
     # the line-of-sight field to radial.
@@ -94,8 +97,8 @@ def smooth_los_threshold(
     dilated_mask = ski.morphology.dilation(mask, disk(dilation_radius))
 
     labels = ski.measure.label(dilated_mask)
-    label_sizes = np.bincount(labels.ravel())
-    mask_sizes = label_sizes > min_size
+    label_areas = np.bincount(labels.ravel())
+    mask_sizes = label_areas > min_area
     mask_sizes[0] = 0
     filtered_labels = mask_sizes[labels]
     return smooth_map, filtered_labels, mask_sizes
