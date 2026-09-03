@@ -26,7 +26,7 @@ line-of-sight field is deprojected to the radial field with a cosine
 correction (valid away from the limb, where the correction diverges and is
 capped), a noise threshold is applied, and the data is smoothed.
 
-Ported in :mod:`smart.processing` (``map_threshold``,
+Ported in :mod:`smart.processing` (``remove_off_disk``,
 ``calculate_cosine_correction``, ``cosine_correct_data``,
 ``smooth_los_threshold``, ``smart_prep``).
 

@@ -39,7 +39,7 @@ from sunpy.net import attrs as a
 
 from smart.differential_rotation import diff_rotation
 from smart.indexed_grown_mask import index_and_grow_mask
-from smart.processing import map_threshold, smooth_los_threshold
+from smart.processing import remove_off_disk, smooth_los_threshold
 
 #####################################################
 # Helpers
@@ -140,7 +140,7 @@ def copy_map(smap):
 
 b_prev, b_t = fetch_mdi("2003-11-25 01:00", "2003-11-25 04:00")[-2:]
 
-smooth_map, area_mask, _ = smooth_los_threshold(map_threshold(copy_map(b_t)), **PAPER_SMART)
+smooth_map, area_mask, _ = smooth_los_threshold(remove_off_disk(b_t), **PAPER_SMART)
 igm = index_and_grow_mask(b_t, diff_rotation(b_t, b_prev))
 
 #####################################################
@@ -262,7 +262,7 @@ for row, (label, (noaa, days)) in enumerate(cases.items()):
     maps = [min(daily, key=lambda m, d=day: abs((m.date - Time(d)).to_value("s"))) for day in days]
     ar = noaa_center(noaa, days[1]) if noaa else central_ar(days[1])
     for col, mdi in enumerate(maps):
-        mask = smooth_los_threshold(map_threshold(copy_map(mdi)), **PAPER_SMART)[1]
+        mask = smooth_los_threshold(remove_off_disk(mdi), **PAPER_SMART)[1]
         center_11 = project(ar, mdi)
         mdi_cut = crop(mdi, center_11, fov_11)
         mask_cut = crop(sunpy.map.Map(mask.astype(float), mdi.meta), center_11, fov_11)
