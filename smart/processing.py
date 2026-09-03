@@ -46,30 +46,34 @@ def smooth_los_threshold(
     min_size: u.Quantity[u.arcsec] = 2250 * u.arcsec,
 ):
     """
+    Apply smoothing, a noise threshold and an LOS correction, in that order, then detect.
 
-    We apply Smoothing, a noise Threshold, and an LOS correction, respectively, to the data.
+    Following Higgins et al. (2011): the raw magnetogram is Gaussian smoothed (which
+    removes ephemeral regions), sub-threshold pixels are zeroed, and the surviving
+    line-of-sight field is deprojected to radial. The result is made binary, grown, and
+    small features are removed.
 
     Parameters
     ----------
     im_map : ``~sunpy.map.Map``
         Processed SunPy magnetogram map.
-    thresh : `int`, optional
-        Threshold value to identify regions of interest (default is 100 Gauss).
-    dilation_radius : `int`, optional
-        Radius of the disk for binary dilation (default is 2 arcsecs).
-    sigma : `int`, optional
-        Standard deviation for Gaussian smoothing (default is 10 arcsecs).
-    min_size : `int`, optional
-        Minimum size of regions to keep in final mask (default is 2250 arcsecs**2).
+    thresh : `~astropy.units.Quantity`, optional
+        Noise threshold; pixels below this in the smoothed map are zeroed (default 100 G).
+    dilation_radius : `~astropy.units.Quantity`, optional
+        Radius of the disk for binary dilation (default 5 arcsec).
+    sigma : `~astropy.units.Quantity`, optional
+        Standard deviation of the Gaussian smoothing kernel (default 10 arcsec).
+    min_size : `~astropy.units.Quantity`, optional
+        Minimum size of regions to keep in the final mask (default 2250 arcsec).
 
     Returns
     -------
     smooth_map : `~sunpy.map.Map`
-        Map after applying Gaussian smoothing.
+        The smoothed, noise-thresholded, LOS-corrected magnetogram.
     filtered_labels : `numpy.ndarray`
-        2D array with each pixel labelled.
+        Boolean detection mask (features larger than ``min_size``).
     mask_sizes : `~numpy.ndarray`
-        Boolean array indicating the sizes of each labeled region.
+        Boolean array indicating which labelled regions exceed ``min_size``.
 
     """
 
@@ -78,15 +82,16 @@ def smooth_los_threshold(
     sigma = (np.round(sigma * arcsec_to_pixel)).to_value(u.pix)
     min_size = (np.round(min_size * arcsec_to_pixel)).to_value(u.pix)
 
-    cosmap_data = cosine_correct_data(im_map)
+    # Smooth the raw magnetogram, zero sub-threshold (noise) pixels, then deproject
+    # the line-of-sight field to radial.
+    smoothed_data = ski.filters.gaussian(np.nan_to_num(im_map.data), sigma)
+    smoothed_data[np.abs(smoothed_data) < thresh.to_value(u.Gauss)] = 0
+    corrected_data = cosine_correct_data(Map(smoothed_data, im_map.meta))
+    smooth_map = Map(corrected_data.to_value(u.Gauss), im_map.meta)
 
-    negmask = cosmap_data < -thresh
-    posmask = cosmap_data > thresh
-    mask = negmask | posmask
-
+    # Binary detection mask, grown, with small features removed.
+    mask = np.abs(corrected_data.to_value(u.Gauss)) >= thresh.to_value(u.Gauss)
     dilated_mask = ski.morphology.dilation(mask, disk(dilation_radius))
-    smoothed_data = ski.filters.gaussian(np.nan_to_num(cosmap_data) * dilated_mask, sigma)
-    smooth_map = Map(smoothed_data, im_map.meta)
 
     labels = ski.measure.label(dilated_mask)
     label_sizes = np.bincount(labels.ravel())
