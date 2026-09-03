@@ -1,4 +1,5 @@
 import numpy as np
+from scipy import stats
 
 import astropy.units as u
 
@@ -6,38 +7,36 @@ from sunpy.map import Map, all_coordinates_from_map, coordinate_is_on_solar_disk
 
 from smart.differential_rotation import diff_rotation
 from smart.indexed_grown_mask import index_and_grow_mask
-from smart.processing import calculate_cosine_correction, smart_prep
+from smart.processing import calculate_cosine_correction, remove_off_disk, threshold_los
 
 __all__ = ["cosine_weighted_area_map", "extract_features", "dB_dt", "get_properties"]
 
 
-def cosine_weighted_area_map(im_map: Map):
+def cosine_weighted_area_map(im_map: Map, limit: float = 0.999):
     """
-    Calculate the cosine-weighted area map for a feature and determine the feature's total area.
+    Per-pixel area on the solar surface (plane-of-sky pixel area deprojected by 1 / cos(theta)).
 
     Parameters
     ----------
     im_map : `~sunpy.map.Map`
         Processed SunPy magnetogram map.
-    feature_mask : `~numpy.ndarray`
-        Binary mask where feature pixels = 1 and background pixels = 0.
+    limit : `float`, optional
+        Cap on ``sin(theta)`` for the deprojection, passed to
+        `~smart.processing.calculate_cosine_correction`. Looser than the field
+        correction's default (0.99) because Table 1's ``A_cos`` is not capped;
+        0.999 limits the area factor to ~22 rather than ~7.
 
     Returns
     -------
-    total_area : `~astropy.units.quantity.Quantity`
-        The total area of the feature in square metres.
-    area_map : `~astropy.units.quantity.Quantity`
-        Area map corrected for cosine projection.
+    area_map : `~astropy.units.Quantity`
+        Deprojected pixel area for every pixel, in square metres.
     """
-    cos_cor = calculate_cosine_correction(im_map)
+    cos_cor = calculate_cosine_correction(im_map, limit=limit)
 
     m_per_arcsec = im_map.rsun_meters / im_map.rsun_obs
-    pixel_area = (im_map.scale[0] * m_per_arcsec) * (im_map.scale[1] * m_per_arcsec)
-    pixel_area = pixel_area * u.pix**2
+    pixel_area = (im_map.scale[0] * m_per_arcsec) * (im_map.scale[1] * m_per_arcsec) * u.pix**2
 
-    area_map = pixel_area * cos_cor
-
-    return area_map
+    return pixel_area * cos_cor
 
 
 def extract_features(sorted_labels):
@@ -67,8 +66,10 @@ def extract_features(sorted_labels):
 
 def dB_dt(current_map: Map, previous_map: Map):
     """
-    A magnetogram differentially rotated to time 't' is subtracted from a processed magnetogram from time 't', and the resultant map is divided
-    by their time separation, yielding a map of the temporal change in field strength.
+    Map of the temporal change in field strength, ``(B_t - B_{t-dt, rotated}) / dt``.
+
+    The earlier magnetogram is differentially rotated to the time of ``current_map`` and
+    subtracted from it, and the difference is divided by the time separation.
 
     Parameters
     ----------
@@ -80,84 +81,118 @@ def dB_dt(current_map: Map, previous_map: Map):
     Returns
     -------
     dB_dt : `~sunpy.map.Map`
-        Map showcasing the change in magnetic field strength over time.
-    dB : `astropy.units.quantity.Quantity`
-        The change in magnetic field strength.
-    dt : `astropy.units.quantity.Quantity`
-        The time interval over which the change in magnetic field strength was measured.
+        Map of the change in magnetic field strength over time (units of Gauss / second).
+    dt : `~astropy.units.Quantity`
+        The time interval over which the change was measured.
     """
     diff_map = diff_rotation(current_map, previous_map)
 
     dB = (current_map.data - diff_map.data) * u.Gauss
     dt = (current_map.date - previous_map.date).to(u.s)
 
-    dB_dt = Map(dB / dt, current_map.meta)
-    dB_dt.data[~coordinate_is_on_solar_disk(all_coordinates_from_map(dB_dt))] = np.nan
-    dB_dt.cmap.set_bad("k")
-    return dB_dt, dt
+    dbdt_map = Map(dB / dt, current_map.meta)
+    dbdt_map.data[~coordinate_is_on_solar_disk(all_coordinates_from_map(dbdt_map))] = np.nan
+    cmap = dbdt_map.cmap.copy()
+    cmap.set_bad("k")
+    dbdt_map.plot_settings["cmap"] = cmap
+    return dbdt_map, dt
 
 
-def get_properties(im_map, dB_dt, dt, sorted_labels):
+def get_properties(im_map, dbdt_map, dt, sorted_labels):
     """
-    Calculate various properties for each detected feature.
+    Magnetic properties of each detected feature (Higgins et al. 2011, Table 1).
 
     Parameters
     ----------
     im_map : `~sunpy.map.Map`
-        Processed SunPy magnetogram map.
-    dB_dt : `~sunpy.map.Map`
-        Map showcasing the change in magnetic field strength over time.
-    dt : `astropy.units.quantity.Quantity`
-        The time interval over which the change in magnetic field strength was measured.
+        The characterisation magnetogram at time 't': noise-thresholded and LOS-corrected
+        (`~smart.processing.threshold_los`), *not* smoothed.
+    dbdt_map : `~sunpy.map.Map`
+        Output of `dB_dt` (units of Gauss / second).
+    dt : `~astropy.units.Quantity`
+        Time separation of the two magnetograms (kept for reference; not needed for the
+        flux-emergence rate, which uses ``dbdt_map`` directly).
     sorted_labels : `~numpy.ndarray`
-        An array where each unique label corresponds to a different feature on the solar disk.
+        Indexed grown mask from `~smart.indexed_grown_mask.index_and_grow_mask`.
 
     Returns
     -------
-    properties : `~list`
-        A list containing properties related to each individual feature.
+    properties : `list` of `dict`
+        One entry per feature, with ``geometry`` / ``field`` / ``flux`` groups. Table 1
+        identifiers: ``geometry`` -> ``HG_pos``, ``A_tot``; ``field`` -> ``B_min``,
+        ``B_max``, ``B_tot``, ``B_totuns``, ``mu``, ``sigma^2``, ``gamma``, ``kappa``;
+        ``flux`` -> ``Phi_+``, ``Phi_-``, ``Phi_uns``, ``Phi_imb``, ``dPhi/dt_net``.
     """
-
     feature_masks = extract_features(sorted_labels)
 
     area_map = cosine_weighted_area_map(im_map)
+    phi_map = im_map.data * u.Gauss * area_map
+    dbdt = np.nan_to_num(dbdt_map.data) * (u.Gauss / u.s)
+
+    hgs = all_coordinates_from_map(im_map).heliographic_stonyhurst
+    lon = hgs.lon.wrap_at(180 * u.deg)
+    lat = hgs.lat
+
+    hemisphere_millionths = (2 * np.pi * im_map.rsun_meters**2) / 1e6
 
     properties = []
     for i, feature_mask in enumerate(feature_masks, start=1):
-        region_area_map = area_map * feature_mask
-        dBdt_data = dB_dt.data * u.G
+        sel = feature_mask.astype(bool)
 
-        total_area = np.sum(region_area_map).to(u.km**2)
-        millionths = ((2 * np.pi * im_map.rsun_meters**2) / (1 * 10**6)).to(u.km**2)
-        total_area_mh = total_area / millionths
+        b = im_map.data[sel] * u.Gauss
+        b_val = b.to_value(u.Gauss)
+        weights = np.abs(b_val)
 
-        magnetic_flux = np.nansum(dBdt_data * region_area_map)
-        flux_emergence_rate = magnetic_flux / dt
+        # Skew / kurtosis are undefined for a constant field (all sub-threshold or all
+        # equal); report 0 in that degenerate case rather than dividing by zero.
+        if np.nanvar(b_val) > 0:
+            skewness = float(stats.skew(b_val, nan_policy="omit"))
+            kurtosis = float(stats.kurtosis(b_val, nan_policy="omit"))
+        else:
+            skewness = kurtosis = 0.0
 
-        B = im_map.data * feature_mask * u.G
-        B_mean = np.nanmean(B)
-        B_std = np.nanstd(B)
-        B_min = np.nanmin(B)
-        B_max = np.nanmax(B)
+        area = np.nansum(area_map[sel]).to(u.Mm**2)
 
-        flux_pos = np.nansum(B[B > 0] * area_map[B > 0])
-        flux_neg = np.nansum(B[B < 0] * area_map[B < 0])
-        flux_uns = np.nansum(np.abs(B) * area_map)
-        flux_imb = (flux_pos - flux_neg) / (flux_pos + flux_neg)
+        phi = phi_map[sel]
+        flux_pos = np.nansum(phi[phi > 0]).to(u.Wb)
+        flux_neg = np.nansum(phi[phi < 0]).to(u.Wb)
+        flux_uns = np.nansum(np.abs(phi)).to(u.Wb)
+        flux_imb = (np.abs(flux_pos + flux_neg) / flux_uns).to_value(u.dimensionless_unscaled)
+
+        emergence_rate = np.nansum(dbdt[sel] * area_map[sel]).to(u.Wb / u.s)
+
+        if weights.sum() > 0:
+            hg_position = (np.average(lon[sel], weights=weights), np.average(lat[sel], weights=weights))
+        else:
+            hg_position = (np.nanmean(lon[sel]), np.nanmean(lat[sel]))
+        hg_centroid = (np.nanmean(lon[sel]), np.nanmean(lat[sel]))
 
         properties.append(
             {
-                "feature label": i,
-                "flux emergence rate": flux_emergence_rate.to(u.Wb / u.s),
-                "mean B": B_mean.to(u.G),
-                "std B": B_std.to(u.G),
-                "minimum B": B_min.to(u.G),
-                "maximum B": B_max.to(u.G),
-                "positive flux": flux_pos.to(u.Wb),
-                "negative flux": flux_neg.to(u.Wb),
-                "unsigned flux": flux_uns.to(u.Wb),
-                "flux imbalance": flux_imb,
-                "total area (millionths)": total_area_mh,
+                "label": i,
+                "geometry": {
+                    "hg_position": hg_position,
+                    "hg_centroid": hg_centroid,
+                    "area": area,
+                    "area_millionths": (area / hemisphere_millionths).to_value(u.dimensionless_unscaled),
+                },
+                "field": {
+                    "min": np.nanmin(b),
+                    "max": np.nanmax(b),
+                    "total": np.nansum(b),
+                    "total_unsigned": np.nansum(np.abs(b)),
+                    "mean": np.nanmean(b),
+                    "variance": np.nanvar(b),
+                    "skewness": skewness,
+                    "kurtosis": kurtosis,
+                },
+                "flux": {
+                    "positive": flux_pos,
+                    "negative": flux_neg,
+                    "unsigned": flux_uns,
+                    "imbalance": flux_imb,
+                    "emergence_rate": emergence_rate,
+                },
             }
         )
 
@@ -166,31 +201,37 @@ def get_properties(im_map, dB_dt, dt, sorted_labels):
 
 def smart_indentify_and_characterize(im_map, previous_map, **kwargs):
     """
-    Identifies and characterises solar features from magnetogram maps.
+    Identify and characterise solar features from two magnetograms.
 
-    This function prepares two magnetograms, one from our desired time, 't', and one taken before this, and then calculates properties of the desired magnetogram,
-    such as total area and flux emergence rate. To do this, the magnetograms are processed, features are detected, and a binary mask is created for the map. Then,
-    the previous map is rotated to match the reference magnetogram. This rotated map has a binary mask created and then compared to the other binary mask, so we
-    can remove transient features due to solar rotation. Individual masks are made for each feature, and finally each of these features has their properties calculated.
+    The two magnetograms are prepared, features are detected and transient-filtered
+    (`~smart.indexed_grown_mask.index_and_grow_mask`), and each feature's magnetic
+    properties are measured on the noise-thresholded, LOS-corrected field.
 
     Parameters
     ----------
     im_map : `~sunpy.map.Map`
-        Map from which features are to be detected and properties extracted.
-    previous_map : `sunpy.map.Map`
-        Map to be rotated and compared to primary map.
+        Magnetogram from time 't'.
+    previous_map : `~sunpy.map.Map`
+        Magnetogram from an earlier time, used for transient removal and the flux
+        emergence rate.
+    **kwargs
+        Passed to `~smart.indexed_grown_mask.index_and_grow_mask`; ``thresh`` (default
+        70 G) is also used for the characterisation `~smart.processing.threshold_los`.
 
     Returns
     -------
-    properties : `~list`
-        A list containing properties related to each individual feature.
+    properties : `list` of `dict`
+        See `get_properties`.
     """
-    threshold_map, *_ = smart_prep(im_map)
-    threshold_map_prev, *_ = smart_prep(previous_map)
+    disk_t = remove_off_disk(im_map)
+    disk_prev = remove_off_disk(previous_map)
 
-    sorted_labels = index_and_grow_mask(threshold_map, threshold_map_prev, **kwargs)
+    sorted_labels = index_and_grow_mask(disk_t, disk_prev, **kwargs)
 
-    dBdt, dt = dB_dt(threshold_map, threshold_map_prev)
+    thresh = kwargs.get("thresh", 70 * u.Gauss)
+    tl_t = threshold_los(disk_t, thresh)
+    tl_prev = threshold_los(disk_prev, thresh)
 
-    properties = get_properties(threshold_map, dBdt, dt, sorted_labels)
-    return properties
+    dbdt_map, dt = dB_dt(tl_t, tl_prev)
+
+    return get_properties(tl_t, dbdt_map, dt, sorted_labels)

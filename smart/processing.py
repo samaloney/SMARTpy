@@ -11,6 +11,7 @@ __all__ = [
     "remove_off_disk",
     "calculate_cosine_correction",
     "cosine_correct_data",
+    "threshold_los",
     "smooth_los_threshold",
     "smart_prep",
 ]
@@ -103,15 +104,13 @@ def smooth_los_threshold(
     sigma = (np.round(sigma * arcsec_to_pixel)).to_value(u.pix)
     min_area = np.round(min_area * arcsec_to_pixel**2).to_value(u.pix**2)
 
-    # Smooth the raw magnetogram, zero sub-threshold (noise) pixels, then deproject
-    # the line-of-sight field to radial.
-    smoothed_data = ski.filters.gaussian(np.nan_to_num(im_map.data), sigma)
-    smoothed_data[np.abs(smoothed_data) < thresh.to_value(u.Gauss)] = 0
-    corrected_data = cosine_correct_data(Map(smoothed_data, im_map.meta))
-    smooth_map = Map(corrected_data.to_value(u.Gauss), im_map.meta)
+    # Smooth the raw magnetogram, then apply the noise threshold and LOS correction
+    # (the paper's "TL Process").
+    smoothed = Map(ski.filters.gaussian(np.nan_to_num(im_map.data), sigma), im_map.meta)
+    smooth_map = threshold_los(smoothed, thresh=thresh)
 
     # Un-grown binary detection mask M_t.
-    mask = np.abs(corrected_data.to_value(u.Gauss)) >= thresh.to_value(u.Gauss)
+    mask = np.abs(smooth_map.data) >= thresh.to_value(u.Gauss)
     if not grow:
         return smooth_map, mask, None
 
@@ -193,6 +192,35 @@ def cosine_correct_data(im_map: Map, cosmap=None, limit: float = 0.99):
 
     corrected_data = im_map.data * cosmap * u.Gauss
     return corrected_data
+
+
+@u.quantity_input
+def threshold_los(im_map: Map, thresh: u.Quantity[u.Gauss] = 70 * u.Gauss):
+    """
+    Noise-threshold and LOS-correct a magnetogram (the paper's "TL Process").
+
+    Pixels with ``|B| < thresh`` are zeroed and the surviving line-of-sight field is
+    deprojected to radial with `cosine_correct_data`. Unlike `smooth_los_threshold`
+    there is no smoothing; this is the characterization-stage processing of Higgins
+    et al. (2011), Section 2.2.
+
+    Parameters
+    ----------
+    im_map : `~sunpy.map.Map`
+        Magnetogram map (off-disk pixels should already be NaN).
+    thresh : `~astropy.units.Quantity`, optional
+        Noise threshold (default 70 G).
+
+    Returns
+    -------
+    `~sunpy.map.Map`
+        The noise-thresholded, LOS-corrected magnetogram (units of Gauss).
+
+    """
+    data = np.array(im_map.data, dtype=float)
+    data[np.abs(data) < thresh.to_value(u.Gauss)] = 0
+    corrected = cosine_correct_data(Map(data, im_map.meta))
+    return Map(corrected.to_value(u.Gauss), im_map.meta)
 
 
 def smart_prep(im_map, **kwargs):

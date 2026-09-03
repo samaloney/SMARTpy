@@ -74,7 +74,7 @@ def index_and_grow_mask(
 
     """
     diff_in_days = (current_map.date - previous_map.date).to_value("day")
-    if 0 < diff_in_days < 10.7:
+    if 0 < diff_in_days < 1.07:
         arcsec_to_pixel = ((current_map.scale[0] + current_map.scale[1]) / 2) ** (-1)
         footprint = disk((np.round(dilation_radius * arcsec_to_pixel)).to_value(u.pix))
         min_area_px = np.round(min_area * arcsec_to_pixel**2).to_value(u.pix**2)
