@@ -1,7 +1,7 @@
 """
-=============================================
+==============================================
 Reproducing figures from Higgins et al. (2011)
-=============================================
+==============================================
 
 ``smart`` is a port of the SMART algorithm described in `Higgins et al. (2011)
 <https://doi.org/10.1016/j.asr.2010.06.024>`__.  This example recreates three
@@ -37,7 +37,6 @@ from sunpy.coordinates import HeliographicStonyhurst, propagate_with_solar_surfa
 from sunpy.net import Fido
 from sunpy.net import attrs as a
 
-from smart.differential_rotation import diff_rotation
 from smart.indexed_grown_mask import index_and_grow_mask
 from smart.processing import remove_off_disk, smooth_los_threshold
 
@@ -141,7 +140,7 @@ def copy_map(smap):
 
 #####################################################
 # Figure 3 -- processing steps for one feature extraction
-# ------------------------------------------------------
+# -------------------------------------------------------
 #
 # Higgins et al. (2011), Figure 3, follows one feature extraction on
 # 25 November 2003 around NOAA 10507:
@@ -163,11 +162,10 @@ b_prev, b_t = fetch_mdi("2003-11-25 01:00", "2003-11-25 04:00")[-2:]
 
 disk_b_t = remove_off_disk(b_t)
 paper = paper_parameters(b_t)
-rotated = diff_rotation(disk_b_t, remove_off_disk(b_prev))
 
 smooth_map, *_ = smooth_los_threshold(disk_b_t, **paper)
 binary_mask = smooth_los_threshold(disk_b_t, **paper, grow=False)[1]
-igm = index_and_grow_mask(disk_b_t, rotated, **paper)
+igm = index_and_grow_mask(disk_b_t, remove_off_disk(b_prev), **paper)
 
 #####################################################
 # .. note::
@@ -211,7 +209,7 @@ fig.tight_layout()
 
 #####################################################
 # Figure 5 -- the +/- 70 G noise threshold
-# ---------------------------------------
+# ----------------------------------------
 #
 # Higgins et al. (2011), Figure 5, compares an active region with a nearby
 # patch of quiet Sun in an MDI magnetogram from 17 September 1997 (NOAA 8086).
@@ -268,7 +266,7 @@ fig.tight_layout()
 
 #####################################################
 # Figure 11 -- detections that diverge from the NOAA catalogue
-# ----------------------------------------------------------
+# ------------------------------------------------------------
 #
 # Higgins et al. (2011), Figure 11, shows three cases where SMART groups flux
 # into features differently from the NOAA active-region catalogue:

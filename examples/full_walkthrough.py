@@ -9,9 +9,8 @@ Here we see the functions needed to quickly extract properties from a magnetogra
 from sunpy.map import Map
 
 from smart.calculate_properties import dB_dt, get_properties, smart_indentify_and_characterize
-from smart.differential_rotation import diff_rotation
 from smart.indexed_grown_mask import index_and_grow_mask
-from smart.processing import smart_prep
+from smart.processing import remove_off_disk
 
 #####################################################
 #
@@ -25,12 +24,8 @@ hmi_map_prev = Map(
     # "https://solmon.dias.ie/data/2024/06/06/HMI/fits/hmi.m_720s_nrt.20240606_000000_TAI.3.magnetogram.fits"
 )
 
-threshold_map, cos_correction = smart_prep(hmi_map)
-threshold_map_prev, cos_correction_prev = smart_prep(hmi_map_prev)
 
-rotated_map = diff_rotation(hmi_map, hmi_map_prev)
-
-sorted_labels = index_and_grow_mask(hmi_map, rotated_map)
+sorted_labels = index_and_grow_mask(remove_off_disk(hmi_map), remove_off_disk(hmi_map_prev))
 
 dBdt, dt = dB_dt(hmi_map, hmi_map_prev)
 

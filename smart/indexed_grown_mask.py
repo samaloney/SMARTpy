@@ -7,6 +7,7 @@ import astropy.units as u
 
 from sunpy.map import Map
 
+from smart.differential_rotation import diff_rotation
 from smart.processing import smooth_los_threshold
 
 __all__ = ["index_and_grow_mask", "plot_indexed_grown_mask"]
@@ -28,7 +29,7 @@ def prepare_magnetogram(mag: Map):
 
 def index_and_grow_mask(
     current_map: Map,
-    rotated_map: Map,
+    previous_map: Map,
     thresh: u.Quantity[u.Gauss] = 100 * u.Gauss,
     sigma: u.Quantity[u.arcsec] = 10 * u.arcsec,
     dilation_radius: u.Quantity[u.arcsec] = 5 * u.arcsec,
@@ -37,19 +38,22 @@ def index_and_grow_mask(
     """
     Performing Indexing and Growing of the Mask (hence the name IGM).
 
-    Following Higgins et al. (2011): the un-grown binary detection masks :math:`M_t` and
-    (differentially rotated) :math:`M_{t-\\Delta t}` are compared. A feature in :math:`M_t`
-    with no counterpart in the grown :math:`M_{t-\\Delta t}`, or smaller than ``min_area``,
-    is dropped as transient. The survivors are then grown by ``dilation_radius`` to form
-    :math:`M_{f,t}`, and each contiguous feature is given an ascending integer value in
-    order of decreasing size.
+    Following Higgins et al. (2011): both magnetograms are smoothed, noise-thresholded and
+    LOS-corrected (`~smart.processing.smooth_los_threshold`); the earlier one is then
+    differentially rotated to time 't' and made binary, giving :math:`M_{t-\\Delta t}`,
+    while the current one gives :math:`M_t`. Both masks are dilated and compared: a feature
+    present in only one frame is transient and is removed from the *un-grown* :math:`M_t`,
+    as are features smaller than ``min_area``. The survivors are grown by ``dilation_radius``
+    to form :math:`M_{f,t}`, and each contiguous feature is given an ascending integer value
+    in order of decreasing size.
 
     Parameters
     ----------
     current_map : `~sunpy.map.Map`
         Processed magnetogram map from time 't'.
-    rotated_map : `~sunpy.map.Map`
-        Processed magnetogtam map from time 't - delta_t' differentially rotated to time t.
+    previous_map : `~sunpy.map.Map`
+        Processed magnetogram map from time 't - delta_t' (not yet rotated; the rotation to
+        time 't' is done here, after the smooth/threshold/LOS step, as in the paper).
     thresh : `~astropy.units.Quantity`, optional
         Noise threshold for the binary detection masks, passed to
         `~smart.processing.smooth_los_threshold` (default 100 G).
@@ -69,34 +73,49 @@ def index_and_grow_mask(
         values (beginning with one) in order of decreasing feature size.
 
     """
-    arcsec_to_pixel = ((current_map.scale[0] + current_map.scale[1]) / 2) ** (-1)
-    footprint = disk((np.round(dilation_radius * arcsec_to_pixel)).to_value(u.pix))
-    min_area_px = np.round(min_area * arcsec_to_pixel**2).to_value(u.pix**2)
+    diff_in_days = (current_map.date - previous_map.date).to_value("day")
+    if 0 < diff_in_days < 1:
+        arcsec_to_pixel = ((current_map.scale[0] + current_map.scale[1]) / 2) ** (-1)
+        footprint = disk((np.round(dilation_radius * arcsec_to_pixel)).to_value(u.pix))
+        min_area_px = np.round(min_area * arcsec_to_pixel**2).to_value(u.pix**2)
+        thresh_gauss = thresh.to_value(u.Gauss)
 
-    # Un-grown binary detection masks: M_t and the differentially rotated M_{t-dt}.
-    current_binary = smooth_los_threshold(current_map, thresh=thresh, sigma=sigma, grow=False)[1]
-    rotated_binary = smooth_los_threshold(rotated_map, thresh=thresh, sigma=sigma, grow=False)[1]
+        # Current frame: smooth / threshold / LOS-correct -> binary M_t.
+        current_binary = smooth_los_threshold(current_map, thresh=thresh, sigma=sigma, grow=False)[1]
 
-    # A feature in the un-grown current mask survives only if it overlaps the grown,
-    # rotated previous-frame mask (so it is not a transient) and is not tiny.
-    grown_rotated = ski.morphology.dilation(rotated_binary, footprint)
-    current_labels = ski.measure.label(current_binary)
-    overlapping = np.unique(current_labels[grown_rotated & (current_labels > 0)])
-    big_enough = np.flatnonzero(np.bincount(current_labels.ravel()) >= min_area_px)
-    surviving = np.isin(current_labels, np.intersect1d(overlapping, big_enough))
+        # Previous frame: smooth / threshold / LOS-correct -> rotate to time 't' -> binary.
+        previous_smooth = smooth_los_threshold(previous_map, thresh=thresh, sigma=sigma, grow=False)[0]
+        rotated_smooth = diff_rotation(current_map, previous_smooth)
+        rotated_binary = np.abs(np.nan_to_num(rotated_smooth.data)) >= thresh_gauss
 
-    # Grow the survivors to form M_f,t, then index by decreasing size.
-    final_labels = ski.measure.label(ski.morphology.dilation(surviving, footprint))
+        # Transient removal: dilate both masks, keep grown M_t features that overlap the grown
+        # M_{t-dt}, and map that decision back onto the un-grown M_t.
+        grown_current = ski.morphology.dilation(current_binary, footprint)
+        grown_rotated = ski.morphology.dilation(rotated_binary, footprint)
+        grown_labels = ski.measure.label(grown_current)
+        persistent = np.unique(grown_labels[grown_rotated & (grown_labels > 0)])
+        non_transient = current_binary & np.isin(grown_labels, persistent)
 
-    regions = ski.measure.regionprops(final_labels)
-    region_sizes = [(region.label, region.area) for region in regions]
+        # Drop features smaller than min_area, then grow the survivors to form M_f,t.
+        labels = ski.measure.label(non_transient)
+        big_enough = np.flatnonzero(np.bincount(labels.ravel()) >= min_area_px)
+        surviving = np.isin(labels, big_enough[big_enough > 0])
 
-    sorted_region_sizes = sorted(region_sizes, key=lambda x: x[1], reverse=True)
-    sorted_labels = np.zeros_like(final_labels)
-    for new_label, (old_label, _) in enumerate(sorted_region_sizes, start=1):
-        sorted_labels[final_labels == old_label] = new_label
+        final_labels = ski.measure.label(ski.morphology.dilation(surviving, footprint))
 
-    return sorted_labels
+        regions = ski.measure.regionprops(final_labels)
+        region_sizes = [(region.label, region.area) for region in regions]
+
+        sorted_region_sizes = sorted(region_sizes, key=lambda x: x[1], reverse=True)
+        sorted_labels = np.zeros_like(final_labels)
+        for new_label, (old_label, _) in enumerate(sorted_region_sizes, start=1):
+            sorted_labels[final_labels == old_label] = new_label
+
+        return sorted_labels
+    else:
+        raise ValueError(
+            f"Difference between current map and previous map: {diff_in_days} is negative or greater than 1 day."
+        )
 
 
 def plot_indexed_grown_mask(current_map: Map, sorted_labels, contours=True, labels=True, figtext=True):

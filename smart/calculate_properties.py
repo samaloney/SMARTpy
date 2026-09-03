@@ -188,9 +188,7 @@ def smart_indentify_and_characterize(im_map, previous_map, **kwargs):
     threshold_map, *_ = smart_prep(im_map)
     threshold_map_prev, *_ = smart_prep(previous_map)
 
-    rotated_map = diff_rotation(threshold_map, threshold_map_prev)
-
-    sorted_labels = index_and_grow_mask(threshold_map, rotated_map, **kwargs)
+    sorted_labels = index_and_grow_mask(threshold_map, threshold_map_prev, **kwargs)
 
     dBdt, dt = dB_dt(threshold_map, threshold_map_prev)
 

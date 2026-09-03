@@ -101,7 +101,7 @@ diff_map.plot(axes=ax["diff"])
 # The `~smart.indexed_grown_mask.index_and_grow_mask` function performs this operation, and also orders the detected active regions in order of descending area, and assigns an ascending integer value to
 # these regions, starting with 1.
 
-sorted_labels = index_and_grow_mask(hmi_map, rotated_map)
+sorted_labels = index_and_grow_mask(hmi_map, hmi_map_prev)
 
 #####################################################
 # Using the `~smart.indexed_grown_mask.plot_indexed_grown_mask` function we can easily see how the map now looks with it's contours and region labels.
