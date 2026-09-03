@@ -1,0 +1,7 @@
+Fix various bugs encountered while recreating figures from original paper.
+
+- Transient removal wasn't actually working
+- Cos / LoS correction was effectively limited to ~1
+- Correct STL order to be smooth, threshold, LoS
+- ``map_threshold`` (renamed to `~smart.processing.remove_off_disk`) was mutating input in place not returns copy
+- Various other small fixes
