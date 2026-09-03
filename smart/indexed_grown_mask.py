@@ -30,9 +30,11 @@ def index_and_grow_mask(current_map: Map, rotated_map: Map, dilation_radius: u.Q
     """
     Performing Indexing and Growing of the Mask (hence the name IGM).
 
-    Transient features are removed by comparing the mask at time 't' and the mask differentially
-    rotated to time 't'. ARs are then assigned ascending integer values (starting from one) in
-    order of decreasing size.
+    Transient features are removed by comparing the detection mask at time 't' with the
+    detection mask differentially rotated to time 't': features in the current mask with no
+    counterpart in the rotated mask are dropped. The surviving detection is grown, and each
+    contiguous feature is assigned an ascending integer value (starting from one) in order
+    of decreasing size.
 
     Parameters
     ----------
@@ -40,8 +42,8 @@ def index_and_grow_mask(current_map: Map, rotated_map: Map, dilation_radius: u.Q
         Processed magnetogram map from time 't'.
     rotated_map : `~sunpy.map.Map`
         Processed magnetogtam map from time 't - delta_t' differentially rotated to time t.
-    dilation_radius : `int`, optional
-        Radius of the disk for binary dilation (default is 2.5 arcsecs).
+    dilation_radius : `~astropy.units.Quantity`, optional
+        Radius of the disk for binary dilation (default is 5 arcsec).
 
     Returns
     -------
@@ -53,14 +55,19 @@ def index_and_grow_mask(current_map: Map, rotated_map: Map, dilation_radius: u.Q
     arcsec_to_pixel = ((current_map.scale[0] + current_map.scale[1]) / 2) ** (-1)
     dilation_radius = (np.round(dilation_radius * arcsec_to_pixel)).to_value(u.pix)
 
-    filtered_labels = smooth_los_threshold(current_map)[1]
-    filtered_labels_dt = smooth_los_threshold(rotated_map)[1]
+    current_mask = smooth_los_threshold(current_map)[1]
+    rotated_mask = smooth_los_threshold(rotated_map)[1]
 
-    dilated_mask = ski.morphology.dilation(filtered_labels, disk(dilation_radius))
-    dilated_mask_dt = ski.morphology.dilation(filtered_labels_dt, disk(dilation_radius))
+    # Grow the differentially rotated previous-frame mask so a feature that has shifted
+    # slightly between the two times still overlaps its counterpart, then keep only the
+    # current-frame features that overlap it -- everything else is a transient.
+    grown_rotated_mask = ski.morphology.dilation(rotated_mask, disk(dilation_radius))
+    current_labels = ski.measure.label(current_mask)
+    persistent_labels = np.unique(current_labels[grown_rotated_mask & (current_labels > 0)])
+    persistent_mask = np.isin(current_labels, persistent_labels)
 
-    transient_features = dilated_mask_dt & ~dilated_mask
-    final_mask = dilated_mask & ~transient_features
+    # Grow the surviving detection to form the final feature mask.
+    final_mask = ski.morphology.dilation(persistent_mask, disk(dilation_radius))
     final_labels = ski.measure.label(final_mask)
 
     regions = ski.measure.regionprops(final_labels)
