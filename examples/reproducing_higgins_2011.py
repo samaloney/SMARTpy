@@ -52,12 +52,29 @@ from smart.processing import remove_off_disk, smooth_los_threshold
 # active-region position from the `HEK <https://www.lmsal.com/hek/>`__ (the
 # NOAA Solar Region Summary); ``project`` drifts such a position with solar
 # rotation onto a given magnetogram, so it can be used as the centre of a
-# cutout.
+# cutout.  ``paper_parameters`` returns the segmentation parameters quoted in
+# Higgins et al. (2011) -- which are given in MDI pixels -- as angular
+# quantities for a given map.
 
 # Any e-mail address registered with JSOC at
 # http://jsoc.stanford.edu/ajax/register_email.html works here.
 MDI_SERIES = a.jsoc.Series("mdi.fd_M_96m_lev182")
 JSOC_NOTIFY = a.jsoc.Notify("maloneys@tcd.ie")
+
+
+def paper_parameters(smap):
+    """Higgins et al. (2011) segmentation parameters, in angular units for ``smap``.
+
+    The paper convolves with a 10x10 pixel kernel of FWHM 5 pixels, thresholds
+    at +/- 70 G, dilates by 10 pixels and drops features smaller than 50 pixels.
+    """
+    scale = (smap.scale[0] + smap.scale[1]) / 2
+    return dict(
+        thresh=70 * u.Gauss,
+        sigma=(5 * u.pix * scale) / (2 * np.sqrt(2 * np.log(2))),
+        dilation_radius=10 * u.pix * scale,
+        min_area=50 * u.pix**2 * scale**2,
+    )
 
 
 def fetch_mdi(start, end, sample=None):
@@ -130,39 +147,51 @@ def copy_map(smap):
 # 25 November 2003 around NOAA 10507:
 #
 # * **(A)** the calibrated magnetogram :math:`B_t`;
-# * **(B)** :math:`B_t` after Gaussian smoothing and noise thresholding
-#   (`~smart.processing.smooth_los_threshold`);
-# * **(C)** the mask after the area threshold;
+# * **(B)** :math:`B_t` after Gaussian smoothing, noise thresholding and the
+#   line-of-sight correction (`~smart.processing.smooth_los_threshold`);
+# * **(C)** the un-grown binary detection mask :math:`M_t` (``grow=False``),
+#   i.e. before the 10-pixel dilation;
 # * **(D)** the final indexed grown feature mask :math:`IGM_{t,i}`
-#   (`~smart.indexed_grown_mask.index_and_grow_mask`), which also removes
-#   transient features using a magnetogram from one time step (96 minutes)
+#   (`~smart.indexed_grown_mask.index_and_grow_mask`) -- :math:`M_t` with
+#   small and transient features removed, dilated, and indexed by size.
+#   Transients are found against a magnetogram one time step (96 minutes)
 #   earlier.
+#
+# Both functions are given the paper's parameters via ``paper_parameters``.
 
 b_prev, b_t = fetch_mdi("2003-11-25 01:00", "2003-11-25 04:00")[-2:]
 
-smooth_map, area_mask, _ = smooth_los_threshold(remove_off_disk(b_t), **PAPER_SMART)
-igm = index_and_grow_mask(b_t, diff_rotation(b_t, b_prev))
+disk_b_t = remove_off_disk(b_t)
+paper = paper_parameters(b_t)
+rotated = diff_rotation(disk_b_t, remove_off_disk(b_prev))
+
+smooth_map, *_ = smooth_los_threshold(disk_b_t, **paper)
+binary_mask = smooth_los_threshold(disk_b_t, **paper, grow=False)[1]
+igm = index_and_grow_mask(disk_b_t, rotated, **paper)
 
 #####################################################
-# ``smooth_los_threshold`` is called with the paper's parameters
-# (``PAPER_SMART`` above).  ``index_and_grow_mask`` internally re-runs
-# ``smooth_los_threshold`` with its own defaults, so panel (D) is grown a
-# little more aggressively than panel (C).
+# .. note::
+#
+#     The detection is busier than the published Figure 3: NOAA 10507 sits in
+#     an extended activity band, and the 10-pixel dilation bridges the
+#     surrounding network into the region.  The paper's tighter crop and the
+#     supergranule-scale detection of the later IDL library (not ported) both
+#     suppress this.
 
 center = project(noaa_center(10507, "2003-11-25"), b_t)
-fov = 400 * u.arcsec
+fov = 600 * u.arcsec
 clip = ImageNormalize(vmin=-1000, vmax=1000)
 
 panels = [
     (crop(copy_map(b_t), center, fov), "(A) calibrated $B_t$", dict(cmap="gray", norm=clip)),
     (
         crop(sunpy.map.Map(smooth_map.data, b_t.meta), center, fov),
-        "(B) smoothed + noise-thresholded",
+        "(B) smoothed + thresholded + LOS",
         dict(cmap="gray", norm=clip),
     ),
     (
-        crop(sunpy.map.Map(area_mask.astype(float), b_t.meta), center, fov),
-        "(C) area-thresholded mask",
+        crop(sunpy.map.Map(binary_mask.astype(float), b_t.meta), center, fov),
+        "(C) binary mask $M_t$ (un-grown)",
         dict(cmap="binary"),
     ),
     (
@@ -206,10 +235,13 @@ sigma = fwhm / (2 * np.sqrt(2 * np.log(2)))
 ar_smooth = gaussian(np.nan_to_num(ar_cut.data), sigma)
 qs_smooth = gaussian(np.nan_to_num(qs_cut.data), sigma)
 
-bins = np.logspace(0, 3, 50)
-bin_centers = np.sqrt(bins[:-1] * bins[1:])
+# The paper uses constant-width (linear) bins, shown on log-log axes -- hence
+# the few wide steps at low |B| and the dense, jagged tail above ~100 G.
+bins = np.arange(0, 1000 + 5, 5)
+bin_centers = 0.5 * (bins[:-1] + bins[1:])
 ar_hist, _ = np.histogram(np.abs(ar_smooth), bins=bins)
 qs_hist, _ = np.histogram(np.abs(qs_smooth), bins=bins)
+floor = 0.1  # so empty / negative bins still plot on the log axis
 
 fig, axes = plt.subplot_mosaic([["ar", "qs"], ["hist", "hist"]], figsize=(9, 8))
 for key, image, title in [("ar", ar_smooth, "NOAA 8086"), ("qs", qs_smooth, "nearby quiet Sun")]:
@@ -218,12 +250,16 @@ for key, image, title in [("ar", ar_smooth, "NOAA 8086"), ("qs", qs_smooth, "nea
     axes[key].set_xticks([])
     axes[key].set_yticks([])
 
-axes["hist"].step(bin_centers, ar_hist, where="mid", label="active region")
-axes["hist"].step(bin_centers, qs_hist, where="mid", label="quiet Sun")
-axes["hist"].step(bin_centers, ar_hist - qs_hist, where="mid", color="red", lw=2, label="AR $-$ QS")
-axes["hist"].axvline(70, ls="-.", color="k")
+axes["hist"].step(bin_centers, np.clip(qs_hist, floor, None), where="mid", color="tab:blue", ls="-.", label="QS")
+axes["hist"].step(bin_centers, np.clip(ar_hist, floor, None), where="mid", color="k", lw=1, label="AR")
+axes["hist"].step(
+    bin_centers, np.clip(ar_hist - qs_hist, floor, None), where="mid", color="firebrick", lw=2, label="AR $-$ QS"
+)
+axes["hist"].axvline(70, ls="-.", color="green")
 axes["hist"].set_xscale("log")
 axes["hist"].set_yscale("log")
+axes["hist"].set_xlim(1, 1000)
+axes["hist"].set_ylim(floor, None)
 axes["hist"].set_xlabel("$|B|$ [G]")
 axes["hist"].set_ylabel("number of pixels")
 axes["hist"].legend()
@@ -259,10 +295,10 @@ fov_11 = 500 * u.arcsec
 fig, axes = plt.subplots(3, 3, figsize=(11, 11), squeeze=False)
 for row, (label, (noaa, days)) in enumerate(cases.items()):
     daily = fetch_mdi(f"{days[0]} 00:00", f"{days[-1]} 18:00", sample=1 * u.day)
-    maps = [min(daily, key=lambda m, d=day: abs((m.date - Time(d)).to_value("s"))) for day in days]
+    maps: u.s = [min(daily, key=lambda m: abs((m.date - Time(day)).to_value("s"))) for day in days]
     ar = noaa_center(noaa, days[1]) if noaa else central_ar(days[1])
     for col, mdi in enumerate(maps):
-        mask = smooth_los_threshold(remove_off_disk(mdi), **PAPER_SMART)[1]
+        mask = smooth_los_threshold(remove_off_disk(mdi), **paper_parameters(mdi))[1]
         center_11 = project(ar, mdi)
         mdi_cut = crop(mdi, center_11, fov_11)
         mask_cut = crop(sunpy.map.Map(mask.astype(float), mdi.meta), center_11, fov_11)
