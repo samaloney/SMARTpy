@@ -6,6 +6,8 @@ SMART processing example.
 SMART processing example from the creation of the first map to the extraction of it's properties.
 """
 
+from pprint import pprint
+
 from matplotlib import pyplot as plt
 
 from sunpy.map import Map
@@ -19,6 +21,7 @@ from smart.processing import (
     remove_off_disk,
     smart_prep,
     smooth_los_threshold,
+    threshold_los,
 )
 
 #####################################################
@@ -101,7 +104,7 @@ diff_map.plot(axes=ax["diff"])
 # The `~smart.indexed_grown_mask.index_and_grow_mask` function performs this operation, and also orders the detected active regions in order of descending area, and assigns an ascending integer value to
 # these regions, starting with 1.
 
-sorted_labels = index_and_grow_mask(hmi_map, hmi_map_prev)
+sorted_labels = index_and_grow_mask(disk_map, thresholded_map_prev)
 
 #####################################################
 # Using the `~smart.indexed_grown_mask.plot_indexed_grown_mask` function we can easily see how the map now looks with it's contours and region labels.
@@ -120,22 +123,26 @@ plot_indexed_grown_mask(hmi_map, sorted_labels)
 
 feature_masks = extract_features(sorted_labels)
 region1_feature_mask = feature_masks[:1]
-region1_area_map = cosine_weighted_area_map(hmi_map)
+region1_area_map = cosine_weighted_area_map(disk_map)
 
 #####################################################
-# We will call the `~smart.calculate_properties.dB_dt` function and plot the result in order to see a map showing the temporal change of the magnetic field on the solar disk.
+# Characterisation is done on the noise-thresholded, LOS-corrected field (the paper's
+# "TL Process", `~smart.processing.threshold_los`) -- no smoothing. We build it for both
+# times and call `~smart.calculate_properties.dB_dt` for the temporal change of the field.
 
-dBdt, dt = dB_dt(hmi_map, hmi_map_prev)
+tl_map = threshold_los(disk_map)
+tl_map_prev = threshold_los(thresholded_map_prev)
+dBdt, dt = dB_dt(tl_map, tl_map_prev)
 dBdt.plot()
 
 #####################################################
-# Finally, we use our `~smart.calculate_properties.get_properties` function to extract information relating to the magnetic field strength, flux, and area of each identified active region.
+# Finally, we use `~smart.calculate_properties.get_properties` to extract the magnetic
+# field, flux and area properties of each identified active region.
 
-properties = get_properties(hmi_map, dBdt, dt, sorted_labels)
+properties = get_properties(tl_map, dBdt, dt, sorted_labels)
 
-for i in range(len(properties)):
-    for prop, value in properties[i].items():
-        print(prop, ":", value)
+for props in properties:
+    pprint(props)
     print()
 
 #####################################################

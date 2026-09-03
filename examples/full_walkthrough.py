@@ -6,11 +6,13 @@ Full Walkthrough
 Here we see the functions needed to quickly extract properties from a magnetogram.
 """
 
+from pprint import pprint
+
 from sunpy.map import Map
 
 from smart.calculate_properties import dB_dt, get_properties, smart_indentify_and_characterize
 from smart.indexed_grown_mask import index_and_grow_mask
-from smart.processing import remove_off_disk
+from smart.processing import remove_off_disk, threshold_los
 
 #####################################################
 #
@@ -25,15 +27,19 @@ hmi_map_prev = Map(
 )
 
 
-sorted_labels = index_and_grow_mask(remove_off_disk(hmi_map), remove_off_disk(hmi_map_prev))
+disk_map = remove_off_disk(hmi_map)
+disk_map_prev = remove_off_disk(hmi_map_prev)
 
-dBdt, dt = dB_dt(hmi_map, hmi_map_prev)
+sorted_labels = index_and_grow_mask(disk_map, disk_map_prev)
 
-properties = get_properties(hmi_map, dBdt, dt, sorted_labels)
+tl_map = threshold_los(disk_map)
+tl_map_prev = threshold_los(disk_map_prev)
+dBdt, dt = dB_dt(tl_map, tl_map_prev)
 
-for i in range(len(properties)):
-    for prop, value in properties[i].items():
-        print(prop, ":", value)
+properties = get_properties(tl_map, dBdt, dt, sorted_labels)
+
+for props in properties:
+    pprint(props)
     print()
 
 #####################################################
