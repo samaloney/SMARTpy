@@ -23,6 +23,8 @@ line-of-sight magnetograms and dates as the originals:
     across columns, and there is no persistent per-feature identity.
 """
 
+import os
+
 import matplotlib.pyplot as plt
 import numpy as np
 from skimage.filters import gaussian
@@ -58,7 +60,7 @@ from smart.processing import remove_off_disk, smooth_los_threshold
 # Any e-mail address registered with JSOC at
 # http://jsoc.stanford.edu/ajax/register_email.html works here.
 MDI_SERIES = a.jsoc.Series("mdi.fd_M_96m_lev182")
-JSOC_NOTIFY = a.jsoc.Notify("maloneys@tcd.ie")
+JSOC_NOTIFY = a.jsoc.Notify(os.getenv("JSOC_EMAIL"))
 
 
 def paper_parameters(smap):
@@ -293,7 +295,7 @@ fov_11 = 500 * u.arcsec
 fig, axes = plt.subplots(3, 3, figsize=(11, 11), squeeze=False)
 for row, (label, (noaa, days)) in enumerate(cases.items()):
     daily = fetch_mdi(f"{days[0]} 00:00", f"{days[-1]} 18:00", sample=1 * u.day)
-    maps: u.s = [min(daily, key=lambda m: abs((m.date - Time(day)).to_value("s"))) for day in days]
+    maps = [min(daily, key=lambda m: abs((m.date - Time(day)).to_value("s"))) for day in days]
     ar = noaa_center(noaa, days[1]) if noaa else central_ar(days[1])
     for col, mdi in enumerate(maps):
         mask = smooth_los_threshold(remove_off_disk(mdi), **paper_parameters(mdi))[1]

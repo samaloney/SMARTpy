@@ -49,15 +49,14 @@ def test_get_cosine_correction_shape(mag_map_sample):
 
 
 def test_get_cosine_correction_limits(mag_map_sample):
+    edge = 0.99
+    # 1 / cos(arcsin(x)) is algebraically identical to 1 / sqrt(1 - x^2)
+    expected_max = 1.0 / np.sqrt(1.0 - edge**2)
+
     cos_cor = calculate_cosine_correction(mag_map_sample)
 
-    edge = 0.99
-    # coordinates = all_coordinates_from_map(mag_map_sample)
-    # on_disk = coordinate_is_on_solar_disk(coordinates)
-    # off_disk = ~on_disk
-
     assert np.all(cos_cor >= 0), "cos_cor lower limits incorrect"
-    assert np.all(cos_cor <= 1 / np.cos(np.arcsin(edge))), "cos_cor upper limits incorrect"
+    assert np.all(cos_cor <= expected_max), "cos_cor upper limits incorrect"
 
 
 def test_cosine_correction(mag_map_sample):
