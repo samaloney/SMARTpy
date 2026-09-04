@@ -11,7 +11,7 @@ from sunpy.map.mapbase import GenericMap
 from smart.processing import (
     calculate_cosine_correction,
     cosine_correct_data,
-    map_threshold,
+    remove_off_disk,
     smooth_los_threshold,
 )
 
@@ -23,7 +23,7 @@ def hmi_nrt():
 
 @pytest.fixture(scope="session")
 def mag_map_sample(hmi_nrt):
-    return map_threshold(Map(hmi_nrt))
+    return remove_off_disk(Map(hmi_nrt))
 
 
 @pytest.fixture
@@ -32,10 +32,11 @@ def create_fake_map(value, shape=((4098, 4098))):
     return Map(fake_data, mag_map_sample().meta)
 
 
-def test_map_threshold(mag_map_sample):
-    processed_map = map_threshold(mag_map_sample)
+def test_remove_off_disk(mag_map_sample):
+    processed_map = remove_off_disk(mag_map_sample)
 
     assert isinstance(processed_map, GenericMap), "Result is not a SunPy Map."
+    assert processed_map is not mag_map_sample, "Input map was not copied."
 
     coordinates = all_coordinates_from_map(processed_map)
     on_solar_disk = coordinate_is_on_solar_disk(coordinates)
@@ -48,15 +49,14 @@ def test_get_cosine_correction_shape(mag_map_sample):
 
 
 def test_get_cosine_correction_limits(mag_map_sample):
+    edge = 0.99
+    # 1 / cos(arcsin(x)) is algebraically identical to 1 / sqrt(1 - x^2)
+    expected_max = 1.0 / np.sqrt(1.0 - edge**2)
+
     cos_cor = calculate_cosine_correction(mag_map_sample)
 
-    edge = 0.99
-    # coordinates = all_coordinates_from_map(mag_map_sample)
-    # on_disk = coordinate_is_on_solar_disk(coordinates)
-    # off_disk = ~on_disk
-
     assert np.all(cos_cor >= 0), "cos_cor lower limits incorrect"
-    assert np.all(cos_cor <= 1 / np.cos(np.arcsin(edge))), "cos_cor upper limits incorrect"
+    assert np.all(cos_cor <= expected_max), "cos_cor upper limits incorrect"
 
 
 def test_cosine_correction(mag_map_sample):

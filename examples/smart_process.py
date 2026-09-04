@@ -16,7 +16,7 @@ from smart.indexed_grown_mask import index_and_grow_mask, plot_indexed_grown_mas
 from smart.processing import (
     calculate_cosine_correction,
     cosine_correct_data,
-    map_threshold,
+    remove_off_disk,
     smart_prep,
     smooth_los_threshold,
 )
@@ -42,10 +42,10 @@ hmi_map = Map("http://jsoc.stanford.edu/data/hmi/fits/2024/06/06/hmi.M_720s.2024
 hmi_map.plot()
 
 #####################################################
-# We apply the `~smart.map_procesing.map_threshold` function, which sets the off-disk pixels to nans, makes them black, and also clips the map data. We'll plot this new thresholded map to see how it looks.
+# We apply the `~smart.processing.remove_off_disk` function, which returns a copy of the map with the off-disk pixels set to NaN (drawn black). We'll plot this new map to see how it looks.
 
-thresholded_map = map_threshold(hmi_map)
-thresholded_map.plot()
+disk_map = remove_off_disk(hmi_map)
+disk_map.plot()
 
 #####################################################
 # Next we'll use the `~smart.map_processing.smooth_los_threshold` function in order to get a smoothed version of our map. This will then be used with the
@@ -53,7 +53,7 @@ thresholded_map.plot()
 #
 # Once again we will use a plot to see how our corrected data looks.
 
-smooth_map, filtered_labels, mask_sizes = smooth_los_threshold(thresholded_map)
+smooth_map, filtered_labels, mask_sizes = smooth_los_threshold(disk_map)
 cos_correction = calculate_cosine_correction(smooth_map)
 corrected_data = cosine_correct_data(smooth_map, cos_correction)
 plt.imshow(corrected_data.value)
@@ -101,7 +101,7 @@ diff_map.plot(axes=ax["diff"])
 # The `~smart.indexed_grown_mask.index_and_grow_mask` function performs this operation, and also orders the detected active regions in order of descending area, and assigns an ascending integer value to
 # these regions, starting with 1.
 
-sorted_labels = index_and_grow_mask(hmi_map, rotated_map)
+sorted_labels = index_and_grow_mask(hmi_map, hmi_map_prev)
 
 #####################################################
 # Using the `~smart.indexed_grown_mask.plot_indexed_grown_mask` function we can easily see how the map now looks with it's contours and region labels.

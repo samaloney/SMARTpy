@@ -8,7 +8,7 @@ import astropy.units as u
 from sunpy.map import Map, all_coordinates_from_map, coordinate_is_on_solar_disk
 
 __all__ = [
-    "map_threshold",
+    "remove_off_disk",
     "calculate_cosine_correction",
     "cosine_correct_data",
     "smooth_los_threshold",
@@ -16,9 +16,14 @@ __all__ = [
 ]
 
 
-def map_threshold(im_map):
+def remove_off_disk(im_map):
     """
-    Set off disk pixels to black and clip the vmin and vmax of the map.
+    Return a copy of ``im_map`` with off-disk pixels blanked.
+
+    Off-limb pixels are set to NaN so that later processing only sees the solar
+    disk. The returned map also carries display settings suited to a
+    magnetogram (NaNs drawn black, a symmetric ``+/- 200`` colour scale). The
+    input map is not modified.
 
     Parameters
     ----------
@@ -27,14 +32,19 @@ def map_threshold(im_map):
 
     Returns
     -------
-    im_map : `~sunpy.map.Map`
-        Processed magnetogram map.
+    `~sunpy.map.Map`
+        Copy of ``im_map`` with off-disk pixels set to NaN.
 
     """
-    im_map.data[~coordinate_is_on_solar_disk(all_coordinates_from_map(im_map))] = np.nan
-    im_map.cmap.set_bad("k")
-    im_map.plot_settings["norm"] = colors.Normalize(vmin=-200, vmax=200)
-    return im_map
+    disk_map = Map(im_map.data.copy(), im_map.meta.copy())
+    off_disk = ~coordinate_is_on_solar_disk(all_coordinates_from_map(disk_map))
+    disk_map.data[off_disk] = np.nan
+
+    cmap = disk_map.cmap.copy()
+    cmap.set_bad("k")
+    disk_map.plot_settings["cmap"] = cmap
+    disk_map.plot_settings["norm"] = colors.Normalize(vmin=-200, vmax=200)
+    return disk_map
 
 
 @u.quantity_input
@@ -43,90 +53,125 @@ def smooth_los_threshold(
     thresh: u.Quantity[u.Gauss] = 100 * u.Gauss,
     dilation_radius: u.Quantity[u.arcsec] = 5 * u.arcsec,
     sigma: u.Quantity[u.arcsec] = 10 * u.arcsec,
-    min_size: u.Quantity[u.arcsec] = 2250 * u.arcsec,
+    min_area: u.Quantity[u.arcsec**2] = 4500 * u.arcsec**2,
+    grow: bool = True,
 ):
     """
+    Apply smoothing, a noise threshold and an LOS correction, in that order, then detect.
 
-    We apply Smoothing, a noise Threshold, and an LOS correction, respectively, to the data.
+    Following Higgins et al. (2011): the raw magnetogram is Gaussian smoothed (which
+    removes ephemeral regions), sub-threshold pixels are zeroed, and the surviving
+    line-of-sight field is deprojected to radial. The result is made binary; with
+    ``grow=True`` it is also dilated and small features are removed.
 
     Parameters
     ----------
     im_map : ``~sunpy.map.Map``
         Processed SunPy magnetogram map.
-    thresh : `int`, optional
-        Threshold value to identify regions of interest (default is 100 Gauss).
-    dilation_radius : `int`, optional
-        Radius of the disk for binary dilation (default is 2 arcsecs).
-    sigma : `int`, optional
-        Standard deviation for Gaussian smoothing (default is 10 arcsecs).
-    min_size : `int`, optional
-        Minimum size of regions to keep in final mask (default is 2250 arcsecs**2).
+    thresh : `~astropy.units.Quantity`, optional
+        Noise threshold; pixels below this in the smoothed map are zeroed (default 100 G).
+    dilation_radius : `~astropy.units.Quantity`, optional
+        Radius of the disk for binary dilation (default 5 arcsec).
+    sigma : `~astropy.units.Quantity`, optional
+        Standard deviation of the Gaussian smoothing kernel (default 10 arcsec).
+    min_area : `~astropy.units.Quantity`, optional
+        Minimum on-disk area for a region to be kept, as a solid angle that is
+        converted to pixels for the map at hand (default 4500 arcsec**2). Higgins
+        et al. (2011) use 50 pixels, but that is applied after a supergranule-scale
+        smoothed detection that is not yet ported, so a larger backstop is used here.
+    grow : `bool`, optional
+        If `True` (default) the binary mask is dilated and regions smaller than
+        ``min_area`` are dropped. If `False` the raw, un-grown binary mask
+        :math:`M_t` is returned instead, for callers that do their own growing
+        (e.g. `~smart.indexed_grown_mask.index_and_grow_mask`).
 
     Returns
     -------
     smooth_map : `~sunpy.map.Map`
-        Map after applying Gaussian smoothing.
+        The smoothed, noise-thresholded, LOS-corrected magnetogram.
     filtered_labels : `numpy.ndarray`
-        2D array with each pixel labelled.
-    mask_sizes : `~numpy.ndarray`
-        Boolean array indicating the sizes of each labeled region.
+        Boolean detection mask -- grown and area-filtered when ``grow=True``,
+        the raw binary mask :math:`M_t` when ``grow=False``.
+    mask_sizes : `~numpy.ndarray` or `None`
+        Boolean array indicating which labelled regions exceed ``min_area``
+        (`None` when ``grow=False``).
 
     """
 
     arcsec_to_pixel = ((im_map.scale[0] + im_map.scale[1]) / 2) ** (-1)
     dilation_radius = (np.round(dilation_radius * arcsec_to_pixel)).to_value(u.pix)
     sigma = (np.round(sigma * arcsec_to_pixel)).to_value(u.pix)
-    min_size = (np.round(min_size * arcsec_to_pixel)).to_value(u.pix)
+    min_area = np.round(min_area * arcsec_to_pixel**2).to_value(u.pix**2)
 
-    cosmap_data = cosine_correct_data(im_map)
+    # Smooth the raw magnetogram, zero sub-threshold (noise) pixels, then deproject
+    # the line-of-sight field to radial.
+    smoothed_data = ski.filters.gaussian(np.nan_to_num(im_map.data), sigma)
+    smoothed_data[np.abs(smoothed_data) < thresh.to_value(u.Gauss)] = 0
+    corrected_data = cosine_correct_data(Map(smoothed_data, im_map.meta))
+    smooth_map = Map(corrected_data.to_value(u.Gauss), im_map.meta)
 
-    negmask = cosmap_data < -thresh
-    posmask = cosmap_data > thresh
-    mask = negmask | posmask
+    # Un-grown binary detection mask M_t.
+    mask = np.abs(corrected_data.to_value(u.Gauss)) >= thresh.to_value(u.Gauss)
+    if not grow:
+        return smooth_map, mask, None
 
+    # Grow the mask and drop small features.
     dilated_mask = ski.morphology.dilation(mask, disk(dilation_radius))
-    smoothed_data = ski.filters.gaussian(np.nan_to_num(cosmap_data) * dilated_mask, sigma)
-    smooth_map = Map(smoothed_data, im_map.meta)
 
     labels = ski.measure.label(dilated_mask)
-    label_sizes = np.bincount(labels.ravel())
-    mask_sizes = label_sizes > min_size
+    label_areas = np.bincount(labels.ravel())
+    mask_sizes = label_areas > min_area
     mask_sizes[0] = 0
     filtered_labels = mask_sizes[labels]
     return smooth_map, filtered_labels, mask_sizes
 
 
-def calculate_cosine_correction(im_map: Map):
-    """
-    Find the cosine correction values for on-disk pixels.
+def calculate_cosine_correction(im_map: Map, limit: float = 0.99):
+    r"""
+    Find the cosine (:math:`1/\mu`) correction values for on-disk pixels.
+
+    For each on-disk pixel the heliocentric angle :math:`\theta` is found from
+    its angular distance from disk centre, and the line-of-sight to radial
+    correction factor is :math:`1/\cos\theta`.  Off-disk pixels are set to 1.
 
     Parameters
     ----------
     im_map : `~sunpy.map.Map`
         Processed SunPy magnetogram map.
+    limit : `float`, optional
+        Cap on :math:`\sin\theta`, so the correction cannot exceed
+        ``1 / cos(arcsin(limit))``.  The default of 0.99 caps it at ~7.1
+        (:math:`\theta \approx 82^\circ`), beyond which the deprojection is
+        unreliable.
 
     Returns
     -------
     cos_correction : `~numpy.ndarray`
-        Array of cosine correction factors for each pixel. Values greater than a threshold (edge) are set to 1.
+        Array of cosine correction factors for each pixel.
 
     """
+    # Guard rail against division by zero, NaNs, and nonsensical limits
+    if not (0.0 < limit < 1.0):
+        raise ValueError(f"`limit` must be strictly between 0 and 1 (exclusive), got {limit}.")
 
     coordinates = all_coordinates_from_map(im_map)
     on_disk = coordinate_is_on_solar_disk(coordinates)
 
-    cos_correction = np.ones_like(im_map.data)
+    cos_correction = np.ones_like(im_map.data, dtype=float)
 
     radial_angle = np.arccos(np.cos(coordinates.Tx[on_disk]) * np.cos(coordinates.Ty[on_disk]))
-    cos_cor_ratio = (radial_angle / im_map.rsun_obs).value
-    cos_cor_ratio = np.clip(cos_cor_ratio, -1, 1)
+    sin_theta = (radial_angle / im_map.rsun_obs).decompose()
 
-    cos_correction[on_disk] = 1 / (np.cos(np.arcsin(cos_cor_ratio)))
+    # Clamp within [0, limit] since radial distance is always non-negative
+    sin_theta = np.clip(sin_theta, 0.0, limit)
+
+    # 1 / cos(arcsin(x)) is algebraically identical to 1 / sqrt(1 - x^2)
+    cos_correction[on_disk] = 1.0 / np.sqrt(1.0 - sin_theta**2)
 
     return cos_correction
 
 
-def cosine_correct_data(im_map: Map, cosmap=None):
+def cosine_correct_data(im_map: Map, cosmap=None, limit: float = 0.99):
     """
     Perform magnetic field cosine correction.
 
@@ -136,7 +181,10 @@ def cosine_correct_data(im_map: Map, cosmap=None):
         Processed SunPy magnetogram map.
     cosmap : `numpy.ndarray`, optional
         An array of the cosine correction factors for each pixel.
-        If not provided, computed using calculate_cosine_correction.
+        If not provided, computed using `calculate_cosine_correction`.
+    limit : `float`, optional
+        Passed to `calculate_cosine_correction`, and used to cap a
+        ``cosmap`` that is supplied directly, at ``1 / cos(arcsin(limit))``.
 
     Returns
     -------
@@ -145,19 +193,15 @@ def cosine_correct_data(im_map: Map, cosmap=None):
 
     """
     if cosmap is None:
-        cosmap = calculate_cosine_correction(im_map)
+        cosmap = calculate_cosine_correction(im_map, limit=limit)
 
-    scale = (im_map.scale[0] + im_map.scale[1]) / 2
-
-    angle_limit = (scale / im_map.rsun_obs).value
-    cos_limit = 1 / np.cos(angle_limit)
-    cosmap = np.clip(cosmap, None, cos_limit)
+    cosmap = np.clip(cosmap, None, 1 / np.cos(np.arcsin(limit)))
 
     corrected_data = im_map.data * cosmap * u.Gauss
     return corrected_data
 
 
-def smart_prep(im_map):
+def smart_prep(im_map, **kwargs):
     """
     Prepare map for use in segmentation and characterization processes.
 
@@ -165,16 +209,19 @@ def smart_prep(im_map):
     ----------
     im_map : `~sunpy.map.Map`
         Unprocessed SunPy magnetogram map.
+    **kwargs
+        Passed through to `smooth_los_threshold` (``thresh``, ``sigma``,
+        ``dilation_radius``, ``min_area``).
 
     Returns
     -------
-    thresholded_map : `~sunpy.map.Map`
-        Processed SunPy magnetogram map.
-    cos_correctiom : `~numpy.ndarray`
+    disk_map : `~sunpy.map.Map`
+        Copy of ``im_map`` with off-disk pixels blanked.
+    cos_correction : `~numpy.ndarray`
         Array of cosine correction factors for each pixel.
 
     """
-    thresholded_map = map_threshold(im_map)
-    smooth_map, *_ = smooth_los_threshold(thresholded_map)
+    disk_map = remove_off_disk(im_map)
+    smooth_map, *_ = smooth_los_threshold(disk_map, **kwargs)
     cos_correction = calculate_cosine_correction(smooth_map)
-    return thresholded_map, cos_correction
+    return disk_map, cos_correction

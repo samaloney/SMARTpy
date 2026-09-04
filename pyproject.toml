@@ -33,6 +33,7 @@ docs = [
   "sunpy-sphinx-theme",
   "packaging",
   "pydata-sphinx-theme",
+  "sunpy[net]>=6.1.0",
 ]
 
 dev = ["smart[tests,docs]"]
