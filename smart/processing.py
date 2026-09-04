@@ -160,7 +160,11 @@ def calculate_cosine_correction(im_map: Map, limit: float = 0.99):
     on_disk = coordinate_is_on_solar_disk(coordinates)
 
     heliocentric = coordinates[on_disk].transform_to(Heliocentric(observer=im_map.observer_coordinate))
-    mu = (heliocentric.z / im_map.rsun_meters).to_value(u.dimensionless_unscaled)
+    z = heliocentric.z.to_value(u.m)
+    # Fix edge pixels where ray-tracing discriminant evaluated to < 0
+    z = np.nan_to_num(z, nan=0.0)
+
+    mu = z / im_map.rsun_meters.to_value(u.m)
     mu = np.clip(mu, np.cos(np.arcsin(limit)), 1.0)
 
     cos_correction = np.ones_like(im_map.data, dtype=float)
