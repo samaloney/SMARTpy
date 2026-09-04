@@ -7,6 +7,7 @@ from sunpy.map import Map, all_coordinates_from_map, coordinate_is_on_solar_disk
 
 from smart.differential_rotation import diff_rotation
 from smart.indexed_grown_mask import index_and_grow_mask
+from smart.polarity_separation_line import psl_properties
 from smart.processing import calculate_cosine_correction, remove_off_disk, threshold_los
 
 __all__ = ["cosine_weighted_area_map", "extract_features", "dB_dt", "get_properties"]
@@ -118,10 +119,12 @@ def get_properties(im_map, dbdt_map, dt, sorted_labels):
     Returns
     -------
     properties : `list` of `dict`
-        One entry per feature, with ``geometry`` / ``field`` / ``flux`` groups. Table 1
-        identifiers: ``geometry`` -> ``HG_pos``, ``A_tot``; ``field`` -> ``B_min``,
+        One entry per feature, with ``geometry`` / ``field`` / ``flux`` / ``psl`` groups.
+        Table 1 identifiers: ``geometry`` -> ``HG_pos``, ``A_tot``; ``field`` -> ``B_min``,
         ``B_max``, ``B_tot``, ``B_totuns``, ``mu``, ``sigma^2``, ``gamma``, ``kappa``;
         ``flux`` -> ``Phi_+``, ``Phi_-``, ``Phi_uns``, ``Phi_imb``, ``dPhi/dt_net``.
+        Table 2 (``psl``, from `~smart.polarity_separation_line.psl_properties`) ->
+        ``L_PSL``, ``L_sg``, ``R*``, ``WL*_sg``.
     """
     feature_masks = extract_features(sorted_labels)
 
@@ -193,6 +196,7 @@ def get_properties(im_map, dbdt_map, dt, sorted_labels):
                     "imbalance": flux_imb,
                     "emergence_rate": emergence_rate,
                 },
+                "psl": psl_properties(im_map, feature_mask),
             }
         )
 
