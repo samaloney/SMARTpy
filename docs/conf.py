@@ -5,6 +5,7 @@
 # http://www.sphinx-doc.org/en/master/config
 
 import datetime
+import os
 from pathlib import Path
 
 from packaging.version import Version
@@ -118,6 +119,9 @@ graphviz_dot_args = [
 autoclass_content = "both"
 
 # -- Other options ----------------------------------------------------------
+
+if "JSOC_EMAIL" not in os.environ:
+    os.environ["JSOC_EMAIL"] = "jsoc@sunpy.org"  # or your registered test email
 
 # -- Options for the Sphinx gallery -------------------------------------------
 path = Path.cwd()
