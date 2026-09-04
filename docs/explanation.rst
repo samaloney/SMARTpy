@@ -71,16 +71,20 @@ Ported in :mod:`smart.differential_rotation` and
 4. Characterisation
 -------------------
 
-Each detected region is measured: cosine-corrected area (also in millionths of a
-solar hemisphere), positive / negative / unsigned magnetic flux and flux
-imbalance, field-strength statistics, and the flux emergence rate from the
-change in field between two times.  Polarity-separation-line length and
-strong-gradient PSL length are computed from the polarity masks.
+Each detected region is measured on the noise-thresholded, LOS-corrected field
+(the paper's *TL Process*, :func:`smart.processing.threshold_los`): flux-weighted
+heliographic position, cosine-corrected area (also in millionths of a solar
+hemisphere), positive / negative / unsigned magnetic flux and flux imbalance,
+field-strength statistics (min, max, signed and unsigned sums, mean, variance,
+skewness, kurtosis), and the flux emergence rate from the change in field between
+two times.  From the polarity-separation line: its length ``L_PSL`` and
+strong-gradient length ``L_sg`` (both in Mm), and the port's threshold-free
+gauges ``R*`` and ``WL*_sg``.
 
-Ported in :mod:`smart.calculate_properties` and
-:mod:`smart.polarity_separation_line`.  Not yet ported: heliographic position,
-bipole separation, the Schrijver *R* value, the Falconer WLSG, magnetic moments,
-and chain-code region boundaries.
+Ported in :mod:`smart.calculate_properties` (Table 1) and
+:mod:`smart.polarity_separation_line` (Table 2).  Not yet ported: the Schrijver
+*R* value, the Falconer WLSG, bipole separation, and chain-code region
+boundaries.
 
 5. Tracking
 -----------

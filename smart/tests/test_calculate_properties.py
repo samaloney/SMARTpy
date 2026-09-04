@@ -94,12 +94,26 @@ def test_hg_position_near_disk_centre(uniform_feature):
     assert_quantity_allclose(lat, sub_obs.lat, atol=2 * u.deg)
 
 
+def test_psl_group_present(bipole_feature):
+    im_map, labels = bipole_feature
+    dbdt_map, dt = _zero_dbdt(im_map)
+    (props,) = get_properties(im_map, dbdt_map, dt, labels)
+
+    psl = props["psl"]
+    assert set(psl) == {"l_psl", "l_sg", "r_star", "wlsg_star"}
+    assert psl["l_psl"] > 0 * u.Mm
+    assert psl["l_sg"] <= psl["l_psl"]
+    assert psl["r_star"].unit.is_equivalent(u.Gauss)
+    assert psl["wlsg_star"].unit.is_equivalent(u.Gauss / u.Mm)
+
+
 def test_smart():
     cur = sunpy.map.Map("http://jsoc.stanford.edu/data/hmi/fits/2024/06/06/hmi.M_720s.20240606_000000_TAI.fits")
     prev = sunpy.map.Map("http://jsoc1.stanford.edu/data/hmi/fits/2024/06/05/hmi.M_720s.20240605_010000_TAI.fits")
     properties = smart_indentify_and_characterize(cur, prev)
     assert len(properties) > 0
     p = properties[0]
-    assert set(p) == {"label", "geometry", "field", "flux"}
+    assert set(p) == {"label", "geometry", "field", "flux", "psl"}
     assert p["flux"]["emergence_rate"].unit.is_equivalent(u.Wb / u.s)
     assert 0 <= p["flux"]["imbalance"] <= 1
+    assert p["psl"]["l_psl"].unit.is_equivalent(u.Mm)
