@@ -15,7 +15,7 @@ license-files = ["licenses/LICENSE.rst"]
 dependencies = [
   "sunpy[map]>=6.1.0",
   "scikit-image>=0.25",
-  "scipy>=1.11",
+  "scipy>=1.14.0",
 ]
 dynamic = ["version"]
 
