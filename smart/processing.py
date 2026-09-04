@@ -165,7 +165,7 @@ def calculate_cosine_correction(im_map: Map, limit: float = 0.99):
     z = np.nan_to_num(z, nan=0.0)
 
     mu = z / im_map.rsun_meters.to_value(u.m)
-    mu = np.clip(mu, np.cos(np.arcsin(limit)), 1.0)
+    mu = np.clip(mu, np.sqrt(1.0 - limit**2), 1.0)
 
     cos_correction = np.ones_like(im_map.data, dtype=float)
     cos_correction[on_disk] = 1.0 / mu

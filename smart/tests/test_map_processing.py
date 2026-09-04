@@ -56,7 +56,7 @@ def test_get_cosine_correction_limits(mag_map_sample):
     cos_cor = calculate_cosine_correction(mag_map_sample)
 
     assert np.all(cos_cor >= 0), "cos_cor lower limits incorrect"
-    assert np.all(cos_cor <= expected_max), "cos_cor upper limits incorrect"
+    assert np.max(cos_cor) <= expected_max, "cos_cor upper limits incorrect"
 
 
 def test_cosine_correction(mag_map_sample):
