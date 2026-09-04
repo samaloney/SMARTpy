@@ -219,8 +219,9 @@ def smart_indentify_and_characterize(im_map, previous_map, **kwargs):
         Magnetogram from an earlier time, used for transient removal and the flux
         emergence rate.
     **kwargs
-        Passed to `~smart.indexed_grown_mask.index_and_grow_mask`; ``thresh`` (default
-        70 G) is also used for the characterisation `~smart.processing.threshold_los`.
+        Passed to `~smart.indexed_grown_mask.index_and_grow_mask`. ``thresh`` (default
+        100 G) is used for both detection and the characterisation
+        `~smart.processing.threshold_los`, so the two stages share one noise threshold.
 
     Returns
     -------
@@ -230,9 +231,10 @@ def smart_indentify_and_characterize(im_map, previous_map, **kwargs):
     disk_t = remove_off_disk(im_map)
     disk_prev = remove_off_disk(previous_map)
 
-    sorted_labels = index_and_grow_mask(disk_t, disk_prev, **kwargs)
+    thresh = kwargs.pop("thresh", 100 * u.Gauss)
 
-    thresh = kwargs.get("thresh", 70 * u.Gauss)
+    sorted_labels = index_and_grow_mask(disk_t, disk_prev, thresh=thresh, **kwargs)
+
     tl_t = threshold_los(disk_t, thresh)
     tl_prev = threshold_los(disk_prev, thresh)
 
