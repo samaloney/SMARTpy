@@ -109,7 +109,7 @@ def test_psl_group_present(bipole_feature):
 
 def test_smart():
     cur = sunpy.map.Map("http://jsoc.stanford.edu/data/hmi/fits/2024/06/06/hmi.M_720s.20240606_000000_TAI.fits")
-    prev = sunpy.map.Map("http://jsoc1.stanford.edu/data/hmi/fits/2024/06/05/hmi.M_720s.20240605_010000_TAI.fits")
+    prev = sunpy.map.Map("http://jsoc.stanford.edu/data/hmi/fits/2024/06/05/hmi.M_720s.20240605_010000_TAI.fits")
     properties = smart_indentify_and_characterize(cur, prev)
     assert len(properties) > 0
     p = properties[0]

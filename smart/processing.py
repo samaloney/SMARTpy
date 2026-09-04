@@ -108,9 +108,19 @@ def smooth_los_threshold(
     # (the paper's "TL Process").
     smoothed = Map(ski.filters.gaussian(np.nan_to_num(im_map.data), sigma), im_map.meta)
     smooth_map = threshold_los(smoothed, thresh=thresh)
+    # Smooth the raw magnetogram, zero sub-threshold (noise) pixels, then deproject
+    # the line-of-sight field to radial.
+    smoothed_data = ski.filters.gaussian(np.nan_to_num(im_map.data), sigma)
+    smoothed_data[np.abs(smoothed_data) < thresh.to_value(u.Gauss)] = 0
+    corrected_data = cosine_correct_data(Map(smoothed_data, im_map.meta))
+    smooth_map = Map(corrected_data.to_value(u.Gauss), im_map.meta)
 
     # Un-grown binary detection mask M_t.
     mask = np.abs(smooth_map.data) >= thresh.to_value(u.Gauss)
+    if not grow:
+        return smooth_map, mask, None
+    # Un-grown binary detection mask M_t.
+    mask = np.abs(corrected_data.to_value(u.Gauss)) >= thresh.to_value(u.Gauss)
     if not grow:
         return smooth_map, mask, None
 
@@ -149,17 +159,23 @@ def calculate_cosine_correction(im_map: Map, limit: float = 0.99):
         Array of cosine correction factors for each pixel.
 
     """
+    # Guard rail against division by zero, NaNs, and nonsensical limits
+    if not (0.0 < limit < 1.0):
+        raise ValueError(f"`limit` must be strictly between 0 and 1 (exclusive), got {limit}.")
 
     coordinates = all_coordinates_from_map(im_map)
     on_disk = coordinate_is_on_solar_disk(coordinates)
 
-    cos_correction = np.ones_like(im_map.data)
+    cos_correction = np.ones_like(im_map.data, dtype=float)
 
     radial_angle = np.arccos(np.cos(coordinates.Tx[on_disk]) * np.cos(coordinates.Ty[on_disk]))
     sin_theta = (radial_angle / im_map.rsun_obs).decompose()
-    sin_theta = np.clip(sin_theta, -limit, limit)
 
-    cos_correction[on_disk] = 1 / np.cos(np.arcsin(sin_theta))
+    # Clamp within [0, limit] since radial distance is always non-negative
+    sin_theta = np.clip(sin_theta, 0.0, limit)
+
+    # 1 / cos(arcsin(x)) is algebraically identical to 1 / sqrt(1 - x^2)
+    cos_correction[on_disk] = 1.0 / np.sqrt(1.0 - sin_theta**2)
 
     return cos_correction
 

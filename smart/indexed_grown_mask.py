@@ -114,7 +114,7 @@ def index_and_grow_mask(
         return sorted_labels
     else:
         raise ValueError(
-            f"Difference between current map and previous map: {diff_in_days} is negative or greater than 1 day."
+            f"Difference between current map and previous map ({diff_in_days} day) must be > 0 and < 1.07 days."
         )
 
 
